@@ -19,3 +19,10 @@ __pycache__/
 # Arquivos temporários
 *.tmp
 instabot_*/
+
+# Build PyInstaller
+build/
+dist/
+
+# Sessão do Claude Code
+.claude/

@@ -1,7 +1,9 @@
 import json
 from pathlib import Path
 
-CONFIG_PATH = Path(__file__).parent / "data" / "config.json"
+from paths import DATA_DIR
+
+CONFIG_PATH = DATA_DIR / "config.json"
 
 DEFAULTS = {
     "db_folder": "",

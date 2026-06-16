@@ -14,8 +14,11 @@ import config
 import dedup
 import downloader
 import organizer
+from paths import DATA_DIR, ASSETS_DIR
 
-HISTORY_FILE = Path(__file__).parent / "data" / "history.json"
+HISTORY_FILE  = DATA_DIR   / "history.json"
+ICON_WINDOW   = ASSETS_DIR / "icon.ico"        # icone da janela + taskbar (ico)
+LOGO_HEADER   = ASSETS_DIR / "logo_header.png" # logo no header do app (png)
 THUMB_SIZE = (64, 64)
 ICON_PX = 13
 
@@ -145,6 +148,14 @@ class App(tk.Tk):
         self._thumb_refs: list = []
         self._result_popup = None
         self._log_counter = 0
+        self._logo_photo = None  # referencia para evitar GC do PhotoImage
+
+        # Icone da janela + taskbar do Windows
+        if ICON_WINDOW.exists():
+            try:
+                self.iconbitmap(str(ICON_WINDOW))
+            except Exception:
+                pass
 
         self._ico_eye    = _icon_eye()
         self._ico_heart  = _icon_heart()
@@ -209,6 +220,16 @@ class App(tk.Tk):
         # Barra de abas
         tab_bar = tk.Frame(self, bg=PANEL)
         tab_bar.pack(fill="x")
+
+        # Logo no canto esquerdo da barra de abas
+        if LOGO_HEADER.exists():
+            try:
+                _img = Image.open(LOGO_HEADER).resize((30, 30), Image.LANCZOS)
+                self._logo_photo = ImageTk.PhotoImage(_img)
+                tk.Label(tab_bar, image=self._logo_photo, bg=PANEL,
+                         padx=8, pady=4).pack(side="left")
+            except Exception:
+                pass
 
         for key, label in [("main", "  Filtro  "), ("settings", "  Configurações  ")]:
             col = tk.Frame(tab_bar, bg=PANEL)

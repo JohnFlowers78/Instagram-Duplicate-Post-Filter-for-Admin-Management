@@ -785,7 +785,7 @@ class App(tk.Tk):
         ).pack(pady=(0, 10))
 
         def dismiss(event=None):
-            self._close_result_popup()
+            self._close_result_popup(reset_ui=True)
 
         popup.bind("<Button-1>", dismiss)
         for child in popup.winfo_children():
@@ -798,13 +798,17 @@ class App(tk.Tk):
         y = self.winfo_y() + (self.winfo_height() - h) // 2
         popup.geometry(f"{w}x{h}+{x}+{y}")
 
-    def _close_result_popup(self):
+    def _close_result_popup(self, reset_ui: bool = False):
         if self._result_popup:
             try:
                 self._result_popup.destroy()
             except Exception:
                 pass
             self._result_popup = None
+            if reset_ui:
+                self.clear_log()
+                self.progress["value"] = 0
+                self.lbl_status.config(text="Aguardando...")
         try:
             self.unbind("<Button-1>")
         except Exception:

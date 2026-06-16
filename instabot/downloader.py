@@ -88,14 +88,72 @@ def _extract_links(page) -> list[str]:
     """)
 
 
+def _extract_ig_meta(page) -> dict:
+    """Extrai curtidas e comentarios do DOM do Instagram (requer sessao autenticada).
+
+    Dois padroes de HTML suportados:
+    - Padrao A (contas menores): div[role=button] contendo 'X curtidas' como texto
+    - Padrao B (contas maiores): span[role=button] numerado logo apos o SVG de acao
+    """
+    meta = {"likes": "N/D", "comments": "N/D", "views": "N/D"}
+    try:
+        result = page.evaluate("""
+            () => {
+                const out = {likes: null, comments: null};
+
+                // Padrao A: "4.089 curtidas" como texto em [role=button]
+                for (const el of document.querySelectorAll('[role="button"]')) {
+                    const t = (el.textContent || '').replace(/\\u00a0/g, ' ').trim();
+                    const m = t.match(/^([\\d.,]+(?:\\s*mil)?)\\s+curtida/i);
+                    if (m && m[1]) { out.likes = m[1].trim(); break; }
+                }
+
+                // Padrao B: span[role=button] numerado apos cada icone de acao SVG
+                for (const [label, field] of [['Curtir','likes'],['Comentar','comments']]) {
+                    if (field === 'likes' && out.likes) continue;
+                    const svg = document.querySelector('svg[aria-label="' + label + '"]');
+                    if (!svg) continue;
+                    const btn = svg.closest('[role="button"]');
+                    if (!btn) continue;
+                    let node = btn;
+                    for (let depth = 0; depth < 7; depth++) {
+                        node = node.parentElement;
+                        if (!node) break;
+                        const sib = node.nextElementSibling;
+                        if (sib && sib.getAttribute('role') === 'button') {
+                            const t = (sib.textContent || '').replace(/\\u00a0/g, ' ').trim();
+                            if (/^[\\d]/.test(t) && t.length < 20) {
+                                out[field] = t;
+                                break;
+                            }
+                        }
+                    }
+                }
+
+                return {
+                    likes:    out.likes    || 'N/D',
+                    comments: out.comments || 'N/D'
+                };
+            }
+        """)
+        if result:
+            for k, v in result.items():
+                if v and v != "N/D":
+                    meta[k] = v
+    except Exception:
+        pass
+    return meta
+
+
 def download_carousel(
     instagram_url: str,
     dest_folder: Path,
     progress_cb: ProgressCallback = None,
-) -> list[Path]:
+) -> tuple[list[Path], dict]:
     dest_folder.mkdir(parents=True, exist_ok=True)
     PROFILE_DIR.mkdir(parents=True, exist_ok=True)
     stealth = Stealth()
+    ig_meta: dict = {"likes": "N/D", "comments": "N/D", "views": "N/D"}
 
     _report(progress_cb, "Abrindo navegador...")
     with sync_playwright() as p:
@@ -153,6 +211,16 @@ def download_carousel(
                     "O snapinsta.to nao retornou midias para esse link apos aguardar.\n"
                     "Verifique se o link do Instagram esta correto e tente novamente."
                 )
+
+            # Visita o Instagram para capturar curtidas/comentarios enquanto o
+            # navegador ainda esta aberto. Requer login no Instagram no navegador do bot.
+            try:
+                _report(progress_cb, "Coletando dados da publicacao no Instagram...")
+                page.goto(instagram_url, wait_until="domcontentloaded", timeout=20000)
+                page.wait_for_timeout(2500)
+                ig_meta = _extract_ig_meta(page)
+            except Exception:
+                pass
         finally:
             context.close()
 
@@ -174,4 +242,4 @@ def download_carousel(
             saved.append(out_path)
             _report(progress_cb, f"  {idx}/{len(links)}: {out_path.name}")
 
-    return saved
+    return saved, ig_meta

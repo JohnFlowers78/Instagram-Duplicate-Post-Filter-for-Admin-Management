@@ -8,7 +8,6 @@ from datetime import date, datetime
 from pathlib import Path
 from tkinter import filedialog, ttk
 
-import requests
 from PIL import Image, ImageDraw, ImageTk
 
 import config
@@ -109,105 +108,6 @@ def _icon_copy(size: int = ICON_PX) -> ImageTk.PhotoImage:
         d.rectangle([off, 0, s - 1, s - 1 - off], outline=c, width=1)
         d.rectangle([0, off, s - 1 - off, s - 1], outline=c, width=1)
     return _make_icon(draw, size)
-
-
-# ---------------------------------------------------------------------------
-# Metadados do Instagram (best-effort)
-# ---------------------------------------------------------------------------
-
-def _try_fetch_ig_meta(url: str) -> dict:
-    meta = {"views": "N/D", "likes": "N/D", "comments": "N/D"}
-    sc_m = re.search(r"/(?:p|reel)/([A-Za-z0-9_-]+)", url)
-    if not sc_m:
-        return meta
-    shortcode = sc_m.group(1)
-    hdrs = {
-        "User-Agent": (
-            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-            "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
-        ),
-        "Accept-Language": "pt-BR,pt;q=0.9",
-        "Accept": "text/html,application/xhtml+xml,*/*;q=0.8",
-        "Referer": "https://www.instagram.com/",
-    }
-
-    def _parse_media(sm: dict):
-        if sm.get("edge_media_preview_like", {}).get("count") is not None:
-            meta["likes"] = str(sm["edge_media_preview_like"]["count"])
-        if sm.get("edge_media_to_comment", {}).get("count") is not None:
-            meta["comments"] = str(sm["edge_media_to_comment"]["count"])
-        if sm.get("video_view_count") is not None:
-            meta["views"] = str(sm["video_view_count"])
-
-    try:
-        r = requests.get(
-            f"https://www.instagram.com/p/{shortcode}/embed/captioned/",
-            headers=hdrs, timeout=10,
-        )
-        if r.ok:
-            text = r.text
-            dm = re.search(
-                r"window\.__additionalDataLoaded\s*\(\s*'[^']*'\s*,\s*(\{.+?\})\s*\)\s*;",
-                text, re.DOTALL,
-            )
-            if dm:
-                data = json.loads(dm.group(1))
-                _parse_media(data.get("shortcode_media", {}))
-            if meta["likes"] == "N/D":
-                for sm_m in re.finditer(
-                    r'<script type="application/json"[^>]*>(\{.+?\})</script>',
-                    text, re.DOTALL,
-                ):
-                    try:
-                        d = json.loads(sm_m.group(1))
-                        if "shortcode_media" in d:
-                            _parse_media(d["shortcode_media"])
-                            break
-                    except Exception:
-                        pass
-            if meta["likes"] != "N/D" or meta["comments"] != "N/D":
-                return meta
-    except Exception:
-        pass
-
-    try:
-        r = requests.get(
-            f"https://api.instagram.com/oembed/?url={url}&omitscript=true",
-            headers={"User-Agent": "Mozilla/5.0"}, timeout=8,
-        )
-        if r.ok:
-            title = r.json().get("title", "")
-            lm = re.search(r"([\d,\.]+)\s+(?:Likes?|curtidas?)", title, re.I)
-            if lm:
-                meta["likes"] = lm.group(1)
-            cm = re.search(r"([\d,\.]+)\s+(?:Comments?|coment[aá]rios?)", title, re.I)
-            if cm:
-                meta["comments"] = cm.group(1)
-            if meta["likes"] != "N/D" or meta["comments"] != "N/D":
-                return meta
-    except Exception:
-        pass
-
-    try:
-        r = requests.get(url, headers=hdrs, timeout=10)
-        if r.ok:
-            m = re.search(
-                r'<script type="application/ld\+json">(.+?)</script>', r.text, re.DOTALL
-            )
-            if m:
-                data = json.loads(m.group(1))
-                for stat in data.get("interactionStatistic", []):
-                    itype = stat.get("interactionType", "")
-                    count = stat.get("userInteractionCount")
-                    if count is not None:
-                        if "LikeAction" in itype:
-                            meta["likes"] = str(count)
-                        elif "CommentAction" in itype:
-                            meta["comments"] = str(count)
-    except Exception:
-        pass
-
-    return meta
 
 
 # ---------------------------------------------------------------------------
@@ -971,7 +871,7 @@ class App(tk.Tk):
         _save_history([])
         self._reload_history_panel()
 
-    def _record_history(self, url: str, slot: Path):
+    def _record_history(self, url: str, slot: Path, ig_meta: dict = None):
         thumb_path = ""
         for ext in ("jpg", "jpeg", "png", "webp"):
             p = slot / f"1.{ext}"
@@ -985,30 +885,18 @@ class App(tk.Tk):
         except ValueError:
             folder_label = slot.name
 
+        default_meta = {"views": "N/D", "likes": "N/D", "comments": "N/D"}
         entry = {
             "url": url,
             "save_datetime": datetime.now().strftime("%d/%m/%Y %H:%M"),
             "folder": folder_label,
             "thumbnail": thumb_path,
-            "meta": {"views": "N/D", "likes": "N/D", "comments": "N/D"},
+            "meta": {**default_meta, **(ig_meta or {})},
         }
         entries = _load_history()
         entries.insert(0, entry)
         _save_history(entries)
         self.after(0, self._reload_history_panel)
-
-        def fetch_and_update():
-            meta = _try_fetch_ig_meta(url)
-            entry["meta"] = meta
-            all_entries = _load_history()
-            for e in all_entries:
-                if e.get("url") == url and e.get("save_datetime") == entry["save_datetime"]:
-                    e["meta"] = meta
-                    break
-            _save_history(all_entries)
-            self.after(0, self._reload_history_panel)
-
-        threading.Thread(target=fetch_and_update, daemon=True).start()
 
     # ------------------------------------------------------------------
     # Pipeline
@@ -1053,7 +941,7 @@ class App(tk.Tk):
                 )
 
             self._step(2, "Baixando midias do snapinsta.to...")
-            media_paths = downloader.download_carousel(
+            media_paths, ig_meta = downloader.download_carousel(
                 link, tmp_dir, progress_cb=lambda m: self._log_async(m)
             )
 
@@ -1076,7 +964,12 @@ class App(tk.Tk):
             self._step(5, "Concluido!")
             slot_label = str(slot.relative_to(db_folder))
             self._log_async(f"Publicacao salva em: {slot_label}")
-            self._done(True, f"Publicacao salva com sucesso!\n{slot_label}", link, slot)
+            likes = ig_meta.get("likes", "N/D")
+            if likes != "N/D":
+                self._log_async(f"Dados: {likes} curtidas · {ig_meta.get('comments', 'N/D')} comentarios")
+            else:
+                self._log_async("Dados do post: faca login no Instagram no navegador do bot para capturar")
+            self._done(True, f"Publicacao salva com sucesso!\n{slot_label}", link, slot, ig_meta)
 
         except Exception as exc:
             self._log_async(f"ERRO: {exc}")
@@ -1094,7 +987,7 @@ class App(tk.Tk):
     def _log_async(self, msg: str):
         self.after(0, lambda: self.log(msg))
 
-    def _done(self, success: bool, msg: str, link: str = "", slot: "Path | None" = None):
+    def _done(self, success: bool, msg: str, link: str = "", slot: "Path | None" = None, ig_meta: dict = None):
         def finish():
             self.btn_start.config(state="normal")
             self.btn_paste_clear.config(state="normal")
@@ -1102,7 +995,7 @@ class App(tk.Tk):
                 self.entry_link.delete(0, "end")
                 self.btn_paste_clear.config(text="Colar")
                 if slot:
-                    self._record_history(link, slot)
+                    self._record_history(link, slot, ig_meta or {})
             else:
                 self.progress["value"] = 0
                 self.lbl_status.config(text="Erro — veja o LOG abaixo")

@@ -8,6 +8,8 @@ DEFAULTS = {
     "person_initial": "V",
     "slots_per_day": 6,
     "hash_threshold": 5,
+    "include_day_counter": True,
+    "include_person_initial": True,
 }
 
 

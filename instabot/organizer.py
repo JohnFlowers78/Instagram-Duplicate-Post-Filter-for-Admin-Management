@@ -4,15 +4,28 @@ from datetime import date
 from pathlib import Path
 from typing import Optional
 
-# Padrao: Dia21_12_06_26_V
-DIA_FOLDER_RE = re.compile(r"^Dia(\d+)_(\d{2})_(\d{2})_(\d{2})_([A-Za-z])$")
+# Aceita todas as combinacoes de nome:
+#   Dia24_16_06_26_V  (contador + data + inicial)
+#   Dia24_16_06_26    (contador + data)
+#   16_06_26_V        (data + inicial)
+#   16_06_26          (so data)
+# Grupos: 1=contador(opt) 2=DD 3=MM 4=AA 5=inicial(opt)
+DIA_FOLDER_RE = re.compile(
+    r"^(?:Dia(\d+)_)?(\d{2})_(\d{2})_(\d{2})(?:_([A-Za-z]+))?$"
+)
 
 
 def today_date_str() -> str:
     return date.today().strftime("%d_%m_%y")
 
 
-def find_existing_dia_folder(db_folder: Path, date_str: str, initial: str) -> Optional[Path]:
+def find_existing_dia_folder(
+    db_folder: Path,
+    date_str: str,
+    initial: str,
+    include_day_counter: bool = True,
+    include_person_initial: bool = True,
+) -> Optional[Path]:
     for entry in db_folder.iterdir():
         if not entry.is_dir():
             continue
@@ -20,8 +33,18 @@ def find_existing_dia_folder(db_folder: Path, date_str: str, initial: str) -> Op
         if not m:
             continue
         entry_date = f"{m.group(2)}_{m.group(3)}_{m.group(4)}"
-        if entry_date == date_str and m.group(5).upper() == initial.upper():
-            return entry
+        if entry_date != date_str:
+            continue
+        has_counter = m.group(1) is not None
+        if has_counter != include_day_counter:
+            continue
+        entry_initial = m.group(5) or ""
+        has_initial = bool(entry_initial)
+        if has_initial != include_person_initial:
+            continue
+        if include_person_initial and entry_initial.upper() != initial.upper():
+            continue
+        return entry
     return None
 
 
@@ -31,7 +54,7 @@ def next_dia_number(db_folder: Path) -> int:
         if not entry.is_dir():
             continue
         m = DIA_FOLDER_RE.match(entry.name)
-        if m:
+        if m and m.group(1) is not None:
             max_n = max(max_n, int(m.group(1)))
     return max_n + 1
 
@@ -45,15 +68,29 @@ def set_large_icons_view(folder: Path) -> None:
     subprocess.run(["attrib", "+r", str(folder)], check=False)
 
 
-def ensure_day_folder(db_folder: Path, initial: str, slots: int = 6) -> Path:
-    """Garante que a pasta do dia de hoje exista, com as N subpastas numeradas e Legenda.txt."""
+def ensure_day_folder(
+    db_folder: Path,
+    initial: str,
+    slots: int = 6,
+    include_day_counter: bool = True,
+    include_person_initial: bool = True,
+) -> Path:
+    """Garante que a pasta do dia de hoje exista com as N subpastas numeradas e Legenda.txt."""
     date_str = today_date_str()
-    existing = find_existing_dia_folder(db_folder, date_str, initial)
+    existing = find_existing_dia_folder(
+        db_folder, date_str, initial, include_day_counter, include_person_initial
+    )
     if existing:
         return existing
 
-    dia_num = next_dia_number(db_folder)
-    folder_name = f"Dia{dia_num}_{date_str}_{initial.upper()}"
+    parts = [date_str]
+    if include_day_counter:
+        dia_num = next_dia_number(db_folder)
+        parts.insert(0, f"Dia{dia_num}")
+    if include_person_initial and initial:
+        parts.append(initial.upper())
+
+    folder_name = "_".join(parts)
     day_folder = db_folder / folder_name
     day_folder.mkdir(parents=True, exist_ok=False)
 
@@ -68,7 +105,7 @@ def ensure_day_folder(db_folder: Path, initial: str, slots: int = 6) -> Path:
 
 
 def find_next_empty_slot(day_folder: Path, slots: int = 6) -> Optional[Path]:
-    """Retorna a primeira subpasta (1..slots) que ainda nao tem midia (so tem Legenda.txt)."""
+    """Retorna a primeira subpasta (1..slots) que ainda nao tem midia."""
     for i in range(1, slots + 1):
         slot = day_folder / str(i)
         if not slot.exists():

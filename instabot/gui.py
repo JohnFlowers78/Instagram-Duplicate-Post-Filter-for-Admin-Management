@@ -4,7 +4,7 @@ import shutil
 import tempfile
 import threading
 import tkinter as tk
-from datetime import datetime
+from datetime import date, datetime
 from pathlib import Path
 from tkinter import filedialog, ttk
 
@@ -18,7 +18,7 @@ import organizer
 
 HISTORY_FILE = Path(__file__).parent / "data" / "history.json"
 THUMB_SIZE = (64, 64)
-ICON_PX = 13  # tamanho dos icones de metadado em pixels
+ICON_PX = 13
 
 STEPS = [
     "Verificando configuracoes...",
@@ -29,9 +29,39 @@ STEPS = [
     "Concluido!",
 ]
 
+# ---------------------------------------------------------------------------
+# Paleta de cores
+# ---------------------------------------------------------------------------
+
+BG     = "#EEEAE5"   # fundo principal — bege quente
+PANEL  = "#FFFFFF"   # cartoes/paineis — branco
+INNER  = "#F7F5F2"   # fundos internos
+BORDER = "#D9D4CE"   # bordas sutis
+TXT_H  = "#1C1917"   # texto principal — quase preto
+TXT_B  = "#44403C"   # corpo — cinza escuro quente
+TXT_M  = "#9C9590"   # texto secundario — cinza medio
+ACCENT = "#0D9488"   # teal vibrante — cor de destaque
+OK_BG  = "#DCFCE7"   # fundo sucesso
+OK_FG  = "#14532D"   # texto sucesso
+ERR_BG = "#FEE2E2"   # fundo erro
+ERR_FG = "#991B1B"   # texto erro
+BPF    = "#1C1917"   # botao primario — fundo
+BPT    = "#FFFFFF"   # botao primario — texto
+BSF    = "#E8E4DF"   # botao secundario — fundo
+BST    = "#1C1917"   # botao secundario — texto
+BDF    = "#DC2626"   # botao perigo — fundo
+BDT    = "#FFFFFF"   # botao perigo — texto
+
+FONT_H  = ("Segoe UI", 10, "bold")
+FONT_SH = ("Segoe UI", 9, "bold")
+FONT_B  = ("Segoe UI", 9)
+FONT_S  = ("Segoe UI", 8)
+FONT_M  = ("Segoe UI", 8)
+FONT_LBL = ("Segoe UI", 7, "bold")   # rotulos de secao uppercase
+
 
 # ---------------------------------------------------------------------------
-# Criacao de icones com PIL
+# Icones PIL
 # ---------------------------------------------------------------------------
 
 def _make_icon(draw_fn, size: int = ICON_PX) -> ImageTk.PhotoImage:
@@ -42,11 +72,9 @@ def _make_icon(draw_fn, size: int = ICON_PX) -> ImageTk.PhotoImage:
 
 def _icon_eye(size: int = ICON_PX) -> ImageTk.PhotoImage:
     def draw(d, s):
-        c = (80, 80, 80, 255)
-        # forma de olho: elipse horizontal
+        c = (100, 100, 100, 255)
         d.arc([0, s // 4, s - 1, s * 3 // 4 - 1], start=180, end=360, fill=c, width=1)
         d.arc([0, s // 4, s - 1, s * 3 // 4 - 1], start=0, end=180, fill=c, width=1)
-        # pupila
         r = max(1, s // 6)
         cx, cy = s // 2, s // 2
         d.ellipse([cx - r, cy - r, cx + r, cy + r], fill=c)
@@ -55,12 +83,10 @@ def _icon_eye(size: int = ICON_PX) -> ImageTk.PhotoImage:
 
 def _icon_heart(size: int = ICON_PX) -> ImageTk.PhotoImage:
     def draw(d, s):
-        c = (80, 80, 80, 255)
+        c = (100, 100, 100, 255)
         h = s // 2
-        # dois arcos superiores
         d.arc([0, 0, h, h], start=180, end=360, fill=c, width=1)
         d.arc([h - 2, 0, s - 1, h], start=180, end=360, fill=c, width=1)
-        # lados descendo ate o ponto inferior
         q = h // 2
         d.line([(0, q), (s // 2, s - 1)], fill=c, width=1)
         d.line([(s - 1, q), (s // 2, s - 1)], fill=c, width=1)
@@ -69,7 +95,7 @@ def _icon_heart(size: int = ICON_PX) -> ImageTk.PhotoImage:
 
 def _icon_bubble(size: int = ICON_PX) -> ImageTk.PhotoImage:
     def draw(d, s):
-        c = (80, 80, 80, 255)
+        c = (100, 100, 100, 255)
         tail = max(2, s // 4)
         d.ellipse([0, 0, s - 1, s - 1 - tail], outline=c, width=1)
         d.polygon([(1, s - tail - 1), (0, s - 1), (tail + 1, s - tail - 1)], fill=c)
@@ -78,7 +104,7 @@ def _icon_bubble(size: int = ICON_PX) -> ImageTk.PhotoImage:
 
 def _icon_copy(size: int = ICON_PX) -> ImageTk.PhotoImage:
     def draw(d, s):
-        c = (80, 80, 80, 255)
+        c = (100, 100, 100, 255)
         off = s // 4
         d.rectangle([off, 0, s - 1, s - 1 - off], outline=c, width=1)
         d.rectangle([0, off, s - 1 - off, s - 1], outline=c, width=1)
@@ -90,14 +116,11 @@ def _icon_copy(size: int = ICON_PX) -> ImageTk.PhotoImage:
 # ---------------------------------------------------------------------------
 
 def _try_fetch_ig_meta(url: str) -> dict:
-    """Tenta obter views, likes e comentarios de um post publico. Fallback N/D."""
     meta = {"views": "N/D", "likes": "N/D", "comments": "N/D"}
-
     sc_m = re.search(r"/(?:p|reel)/([A-Za-z0-9_-]+)", url)
     if not sc_m:
         return meta
     shortcode = sc_m.group(1)
-
     hdrs = {
         "User-Agent": (
             "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
@@ -116,30 +139,24 @@ def _try_fetch_ig_meta(url: str) -> dict:
         if sm.get("video_view_count") is not None:
             meta["views"] = str(sm["video_view_count"])
 
-    # Tentativa 1: pagina de embed do Instagram (geralmente tem dados estruturados)
     try:
         r = requests.get(
             f"https://www.instagram.com/p/{shortcode}/embed/captioned/",
-            headers=hdrs,
-            timeout=10,
+            headers=hdrs, timeout=10,
         )
         if r.ok:
             text = r.text
-            # window.__additionalDataLoaded contem dados do post
             dm = re.search(
                 r"window\.__additionalDataLoaded\s*\(\s*'[^']*'\s*,\s*(\{.+?\})\s*\)\s*;",
-                text,
-                re.DOTALL,
+                text, re.DOTALL,
             )
             if dm:
                 data = json.loads(dm.group(1))
                 _parse_media(data.get("shortcode_media", {}))
-            # Fallback: JSON embutido em tag <script type="application/json">
             if meta["likes"] == "N/D":
                 for sm_m in re.finditer(
                     r'<script type="application/json"[^>]*>(\{.+?\})</script>',
-                    text,
-                    re.DOTALL,
+                    text, re.DOTALL,
                 ):
                     try:
                         d = json.loads(sm_m.group(1))
@@ -153,12 +170,10 @@ def _try_fetch_ig_meta(url: str) -> dict:
     except Exception:
         pass
 
-    # Tentativa 2: oEmbed
     try:
         r = requests.get(
             f"https://api.instagram.com/oembed/?url={url}&omitscript=true",
-            headers={"User-Agent": "Mozilla/5.0"},
-            timeout=8,
+            headers={"User-Agent": "Mozilla/5.0"}, timeout=8,
         )
         if r.ok:
             title = r.json().get("title", "")
@@ -173,7 +188,6 @@ def _try_fetch_ig_meta(url: str) -> dict:
     except Exception:
         pass
 
-    # Tentativa 3: JSON-LD na pagina do post
     try:
         r = requests.get(url, headers=hdrs, timeout=10)
         if r.ok:
@@ -222,97 +236,215 @@ class App(tk.Tk):
     def __init__(self):
         super().__init__()
         self.title("Filtro de Repetidas - Instagram")
-        self.geometry("600x720")
-        self.minsize(540, 520)
+        self.geometry("620x760")
+        self.minsize(560, 560)
         self.resizable(True, True)
+        self.configure(bg=BG)
 
         self.cfg = config.load_config()
         self._thumb_refs: list = []
         self._result_popup = None
         self._log_counter = 0
 
-        # Icones criados uma vez e reutilizados em todas as linhas do historico
-        self._ico_eye = _icon_eye()
-        self._ico_heart = _icon_heart()
+        self._ico_eye    = _icon_eye()
+        self._ico_heart  = _icon_heart()
         self._ico_bubble = _icon_bubble()
-        self._ico_copy = _icon_copy()
+        self._ico_copy   = _icon_copy()
 
-        self._build_widgets()
+        # Variaveis de configuracao (aba Configuracoes)
+        self._var_counter = tk.BooleanVar(value=self.cfg.get("include_day_counter", True))
+        self._var_initial = tk.BooleanVar(value=self.cfg.get("include_person_initial", True))
+        self._var_letter  = tk.StringVar(value=self.cfg.get("person_initial", "V"))
+        self._var_slots   = tk.StringVar(value=str(self.cfg.get("slots_per_day", 6)))
+        self._var_thresh  = tk.StringVar(value=str(self.cfg.get("hash_threshold", 5)))
+
+        self._setup_styles()
+        self._build_ui()
+
+        # Traces depois do build para que _lbl_preview ja exista
+        self._var_counter.trace_add("write", self._update_preview)
+        self._var_initial.trace_add("write", self._on_initial_var_change)
+        self._var_letter.trace_add("write", self._update_preview)
+
+        self._update_preview()
         self._refresh_db_folder_label()
         self._reload_history_panel()
 
     # ------------------------------------------------------------------
-    # Construcao da interface
+    # Estilos ttk
     # ------------------------------------------------------------------
-    def _build_widgets(self):
-        pad = {"padx": 10, "pady": 4}
 
-        # Pasta de historico
-        frame_db = tk.LabelFrame(self, text="Pasta de analise (historico de envios)")
-        frame_db.pack(fill="x", **pad)
+    def _setup_styles(self):
+        s = ttk.Style(self)
+        s.theme_use("clam")
+        s.configure("TFrame", background=BG)
+        s.configure(
+            "Accent.Horizontal.TProgressbar",
+            troughcolor=BORDER,
+            background=ACCENT,
+            thickness=5,
+            borderwidth=0,
+        )
+        s.configure(
+            "TScrollbar",
+            background=BORDER,
+            troughcolor=INNER,
+            width=7,
+            arrowsize=7,
+            bordercolor=INNER,
+            relief="flat",
+        )
+        s.map("TScrollbar", background=[("active", TXT_M)])
+
+    # ------------------------------------------------------------------
+    # Construcao da UI
+    # ------------------------------------------------------------------
+
+    def _build_ui(self):
+        self._tab_btns  = {}
+        self._tab_inds  = {}
+        self._tab_pages = {}
+        self._tab_active = None
+
+        # Barra de abas
+        tab_bar = tk.Frame(self, bg=PANEL)
+        tab_bar.pack(fill="x")
+
+        for key, label in [("main", "  Filtro  "), ("settings", "  Configurações  ")]:
+            col = tk.Frame(tab_bar, bg=PANEL)
+            col.pack(side="left")
+            btn = tk.Button(
+                col, text=label,
+                font=FONT_B, bg=PANEL, fg=TXT_M,
+                relief="flat", bd=0,
+                padx=6, pady=10,
+                cursor="hand2",
+                activebackground=PANEL, activeforeground=TXT_H,
+                command=lambda k=key: self._switch_tab(k),
+            )
+            btn.pack()
+            ind = tk.Frame(col, height=2, bg=PANEL)
+            ind.pack(fill="x")
+            self._tab_btns[key] = btn
+            self._tab_inds[key] = ind
+
+        tk.Frame(self, bg=BORDER, height=1).pack(fill="x")
+
+        # Paginas de conteudo
+        for key, build_fn in [
+            ("main",     self._build_main_tab),
+            ("settings", self._build_settings_tab),
+        ]:
+            page = tk.Frame(self, bg=BG)
+            self._tab_pages[key] = page
+            build_fn(page)
+
+        self._switch_tab("main")
+
+    def _switch_tab(self, name: str):
+        for k in self._tab_pages:
+            self._tab_pages[k].pack_forget()
+            self._tab_btns[k].configure(fg=TXT_M, font=FONT_B)
+            self._tab_inds[k].configure(bg=PANEL)
+        self._tab_pages[name].pack(fill="both", expand=True)
+        self._tab_btns[name].configure(fg=ACCENT, font=FONT_SH)
+        self._tab_inds[name].configure(bg=ACCENT)
+        self._tab_active = name
+
+    # ------------------------------------------------------------------
+    # Aba principal
+    # ------------------------------------------------------------------
+
+    def _build_main_tab(self, page):
+        PAD = {"padx": 12, "pady": (6, 0)}
+
+        # Card: pasta de analise
+        outer, card = self._make_card(page, "Pasta de Análise")
+        outer.pack(fill="x", **PAD)
+        row = tk.Frame(card, bg=PANEL)
+        row.pack(fill="x")
         self.lbl_db_folder = tk.Label(
-            frame_db, text="(nenhuma pasta selecionada)", anchor="w", wraplength=420
+            row, text="(nenhuma pasta selecionada)",
+            font=FONT_B, bg=PANEL, fg=TXT_M, anchor="w",
         )
-        self.lbl_db_folder.pack(side="left", fill="x", expand=True, padx=8, pady=6)
-        tk.Button(frame_db, text="Selecionar pasta...", command=self.choose_db_folder).pack(
-            side="right", padx=8, pady=6
+        self.lbl_db_folder.pack(side="left", fill="x", expand=True)
+        self._btn(row, "Selecionar...", self.choose_db_folder, "secondary").pack(
+            side="right", padx=(10, 0)
         )
 
-        # Link + Colar/Limpar + Iniciar
-        frame_link = tk.LabelFrame(self, text="Nova publicacao do Instagram")
-        frame_link.pack(fill="x", **pad)
-        self.entry_link = tk.Entry(frame_link)
-        self.entry_link.pack(side="left", fill="x", expand=True, padx=(8, 4), pady=8)
+        # Card: nova publicacao
+        outer2, card2 = self._make_card(page, "Nova Publicação do Instagram")
+        outer2.pack(fill="x", **PAD)
+        link_row = tk.Frame(card2, bg=PANEL)
+        link_row.pack(fill="x")
+
+        entry_wrap = tk.Frame(link_row, bg=BORDER, padx=1, pady=1)
+        entry_wrap.pack(side="left", fill="x", expand=True)
+        self.entry_link = tk.Entry(
+            entry_wrap, font=FONT_B,
+            bg=INNER, fg=TXT_H, insertbackground=TXT_H,
+            relief="flat", bd=0,
+        )
+        self.entry_link.pack(fill="both", expand=True, ipady=5)
         self.entry_link.bind("<KeyRelease>", self._on_link_change)
 
-        self.btn_paste_clear = tk.Button(
-            frame_link, text="Colar", width=7, command=self._paste_or_clear
-        )
-        self.btn_paste_clear.pack(side="left", padx=(0, 4), pady=8)
+        self.btn_paste_clear = self._btn(link_row, "Colar", self._paste_or_clear, "secondary")
+        self.btn_paste_clear.pack(side="left", padx=(6, 4))
+        self.btn_start = self._btn(link_row, "Iniciar", self.start_pipeline, "primary")
+        self.btn_start.pack(side="left")
 
-        self.btn_start = tk.Button(
-            frame_link, text="Iniciar", width=7, command=self.start_pipeline
-        )
-        self.btn_start.pack(side="left", padx=(0, 8), pady=8)
-
-        # Progresso
-        frame_prog = tk.LabelFrame(self, text="Progresso")
-        frame_prog.pack(fill="x", **pad)
+        # Card: progresso
+        outer3, card3 = self._make_card(page, "Progresso")
+        outer3.pack(fill="x", **PAD)
         self.progress = ttk.Progressbar(
-            frame_prog, orient="horizontal", mode="determinate", maximum=len(STEPS)
+            card3, orient="horizontal", mode="determinate",
+            maximum=len(STEPS), style="Accent.Horizontal.TProgressbar",
         )
-        self.progress.pack(fill="x", padx=8, pady=(6, 2))
-        self.lbl_status = tk.Label(frame_prog, text="Aguardando...", anchor="w")
-        self.lbl_status.pack(fill="x", padx=8, pady=(0, 6))
+        self.progress.pack(fill="x", pady=(0, 5))
+        self.lbl_status = tk.Label(
+            card3, text="Aguardando...",
+            font=FONT_S, bg=PANEL, fg=TXT_M, anchor="w",
+        )
+        self.lbl_status.pack(fill="x")
 
-        # Log
-        frame_log = tk.LabelFrame(self, text="LOGs")
-        frame_log.pack(fill="both", expand=True, **pad)
-        sb_log = ttk.Scrollbar(frame_log, orient="vertical")
+        # Card: LOGs
+        outer4, card4 = self._make_card(page, "LOGs")
+        outer4.pack(fill="both", expand=True, **PAD)
+        sb_log = ttk.Scrollbar(card4, orient="vertical")
         self.txt_log = tk.Text(
-            frame_log, height=5, state="disabled", wrap="word", yscrollcommand=sb_log.set
+            card4, height=5, state="disabled", wrap="word",
+            yscrollcommand=sb_log.set,
+            font=("Consolas", 8),
+            bg=INNER, fg=TXT_B, insertbackground=TXT_B,
+            relief="flat", bd=0, highlightthickness=0,
+            spacing1=1, spacing3=1,
         )
         sb_log.config(command=self.txt_log.yview)
-        self.txt_log.pack(side="left", fill="both", expand=True, padx=(8, 0), pady=8)
-        sb_log.pack(side="right", fill="y", pady=8, padx=(0, 8))
+        self.txt_log.pack(side="left", fill="both", expand=True)
+        sb_log.pack(side="right", fill="y")
 
-        # Cabecalho do historico
-        hdr = tk.Frame(self)
-        hdr.pack(fill="x", padx=10, pady=(4, 0))
-        tk.Label(hdr, text="Historico de envios bem-sucedidos", font=("Arial", 9, "bold")).pack(
-            side="left"
+        # Historico — cabecalho
+        hist_hdr = tk.Frame(page, bg=BG)
+        hist_hdr.pack(fill="x", padx=12, pady=(10, 2))
+        tk.Label(
+            hist_hdr, text="HISTÓRICO DE ENVIOS",
+            font=FONT_LBL, bg=BG, fg=TXT_M, anchor="w",
+        ).pack(side="left")
+        self._btn(hist_hdr, "Resetar", self._reset_history, "danger_sm").pack(side="right")
+
+        # Historico — canvas scrollavel
+        hist_outer = tk.Frame(page, bg=BORDER, padx=1, pady=1)
+        hist_outer.pack(fill="both", expand=True, padx=12, pady=(0, 10))
+        hist_card = tk.Frame(hist_outer, bg=PANEL)
+        hist_card.pack(fill="both", expand=True)
+
+        self._hist_canvas = tk.Canvas(
+            hist_card, borderwidth=0, highlightthickness=0, height=160, bg=PANEL
         )
-        tk.Button(hdr, text="Resetar historico", command=self._reset_history).pack(side="right")
-
-        # Painel de historico (Canvas scrollavel)
-        frame_hist = tk.Frame(self, bd=1, relief="sunken")
-        frame_hist.pack(fill="both", expand=True, padx=10, pady=(2, 8))
-
-        self._hist_canvas = tk.Canvas(frame_hist, borderwidth=0, highlightthickness=0, height=180)
-        sb_hist = ttk.Scrollbar(frame_hist, orient="vertical", command=self._hist_canvas.yview)
+        sb_hist = ttk.Scrollbar(hist_card, orient="vertical", command=self._hist_canvas.yview)
         self._hist_canvas.configure(yscrollcommand=sb_hist.set)
 
-        self._hist_inner = tk.Frame(self._hist_canvas)
+        self._hist_inner = tk.Frame(self._hist_canvas, bg=PANEL)
         self._hist_inner_id = self._hist_canvas.create_window(
             (0, 0), window=self._hist_inner, anchor="nw"
         )
@@ -335,12 +467,249 @@ class App(tk.Tk):
             "<Leave>", lambda e: self._hist_canvas.unbind_all("<MouseWheel>")
         )
 
-    def _on_hist_scroll(self, event):
-        self._hist_canvas.yview_scroll(int(-1 * (event.delta / 120)), "units")
+    # ------------------------------------------------------------------
+    # Aba configuracoes
+    # ------------------------------------------------------------------
+
+    def _build_settings_tab(self, page):
+        PAD = {"padx": 12, "pady": (10, 0)}
+
+        # Card: nomenclatura
+        outer, card = self._make_card(page, "Nomenclatura das Pastas")
+        outer.pack(fill="x", **PAD)
+
+        tk.Label(
+            card,
+            text="Defina quais elementos aparecem no nome da pasta de envio diária.",
+            font=FONT_S, bg=PANEL, fg=TXT_M, anchor="w", wraplength=500,
+        ).pack(fill="x", pady=(0, 10))
+
+        tk.Checkbutton(
+            card,
+            text="Incluir contador de dias  (Dia1, Dia2, Dia24...)",
+            variable=self._var_counter,
+            font=FONT_B, bg=PANEL, fg=TXT_B,
+            activebackground=PANEL, activeforeground=TXT_H,
+            selectcolor=PANEL, cursor="hand2",
+        ).pack(anchor="w")
+
+        initial_row = tk.Frame(card, bg=PANEL)
+        initial_row.pack(fill="x", pady=(8, 0))
+
+        tk.Checkbutton(
+            initial_row,
+            text="Incluir inicial da pessoa",
+            variable=self._var_initial,
+            font=FONT_B, bg=PANEL, fg=TXT_B,
+            activebackground=PANEL, activeforeground=TXT_H,
+            selectcolor=PANEL, cursor="hand2",
+        ).pack(side="left")
+
+        tk.Label(initial_row, text="   Inicial:", font=FONT_B, bg=PANEL, fg=TXT_B).pack(
+            side="left"
+        )
+
+        vcmd_letter = (
+            self.register(lambda v: len(v) <= 1 and (v == "" or v.isalpha())), "%P"
+        )
+        letter_wrap = tk.Frame(initial_row, bg=BORDER, padx=1, pady=1)
+        letter_wrap.pack(side="left", padx=(4, 0))
+        self.entry_letter = tk.Entry(
+            letter_wrap, textvariable=self._var_letter,
+            font=FONT_SH, width=3, justify="center",
+            bg=INNER, fg=TXT_H, insertbackground=TXT_H,
+            relief="flat", bd=0,
+            validate="key", validatecommand=vcmd_letter,
+        )
+        self.entry_letter.pack(ipady=4)
+        if not self._var_initial.get():
+            self.entry_letter.config(state="disabled")
+
+        # Preview
+        preview_wrap = tk.Frame(card, bg=INNER, padx=12, pady=10)
+        preview_wrap.pack(fill="x", pady=(14, 0))
+        tk.Label(
+            preview_wrap, text="Exemplo de pasta que será criada:",
+            font=FONT_M, bg=INNER, fg=TXT_M, anchor="w",
+        ).pack(fill="x")
+        self._lbl_preview = tk.Label(
+            preview_wrap, text="",
+            font=("Consolas", 11, "bold"), bg=INNER, fg=TXT_H, anchor="w",
+        )
+        self._lbl_preview.pack(fill="x")
+
+        # Card: parametros de envio
+        outer2, card2 = self._make_card(page, "Parâmetros de Envio")
+        outer2.pack(fill="x", **PAD)
+
+        slots_row = tk.Frame(card2, bg=PANEL)
+        slots_row.pack(fill="x")
+        tk.Label(
+            slots_row, text="Publicações por dia:",
+            font=FONT_B, bg=PANEL, fg=TXT_B,
+        ).pack(side="left")
+        vcmd_int = (
+            self.register(lambda v: v == "" or (v.isdigit() and 1 <= int(v) <= 99)), "%P"
+        )
+        slots_wrap = tk.Frame(slots_row, bg=BORDER, padx=1, pady=1)
+        slots_wrap.pack(side="left", padx=(8, 0))
+        tk.Entry(
+            slots_wrap, textvariable=self._var_slots,
+            width=4, font=FONT_B, justify="center",
+            bg=INNER, fg=TXT_H, relief="flat", bd=0,
+            validate="key", validatecommand=vcmd_int,
+        ).pack(ipady=4)
+
+        # Card: deteccao de duplicatas
+        outer3, card3 = self._make_card(page, "Detecção de Duplicatas")
+        outer3.pack(fill="x", **PAD)
+
+        thresh_row = tk.Frame(card3, bg=PANEL)
+        thresh_row.pack(fill="x")
+        tk.Label(
+            thresh_row, text="Limiar de similaridade:",
+            font=FONT_B, bg=PANEL, fg=TXT_B,
+        ).pack(side="left")
+        vcmd_thr = (
+            self.register(lambda v: v == "" or (v.isdigit() and int(v) <= 30)), "%P"
+        )
+        thresh_wrap = tk.Frame(thresh_row, bg=BORDER, padx=1, pady=1)
+        thresh_wrap.pack(side="left", padx=(8, 0))
+        tk.Entry(
+            thresh_wrap, textvariable=self._var_thresh,
+            width=4, font=FONT_B, justify="center",
+            bg=INNER, fg=TXT_H, relief="flat", bd=0,
+            validate="key", validatecommand=vcmd_thr,
+        ).pack(ipady=4)
+        tk.Label(
+            thresh_row,
+            text="   (0 = idêntico · quanto maior, mais tolerante)",
+            font=FONT_M, bg=PANEL, fg=TXT_M,
+        ).pack(side="left")
+
+        # Botao salvar
+        save_row = tk.Frame(page, bg=BG)
+        save_row.pack(fill="x", padx=12, pady=(16, 12))
+        self._btn(save_row, "Salvar Configurações", self._save_settings, "primary").pack(
+            side="right"
+        )
+
+    # ------------------------------------------------------------------
+    # Fabrica de widgets utilitarios
+    # ------------------------------------------------------------------
+
+    def _make_card(self, parent, title: str = None):
+        """Retorna (outer_frame, content_frame). Empacote o outer na tela."""
+        outer = tk.Frame(parent, bg=BORDER, padx=1, pady=1)
+        content = tk.Frame(outer, bg=PANEL, padx=14, pady=11)
+        content.pack(fill="both", expand=True)
+        if title:
+            tk.Label(
+                content, text=title.upper(),
+                font=FONT_LBL, bg=PANEL, fg=TXT_M, anchor="w",
+            ).pack(fill="x", pady=(0, 8))
+        return outer, content
+
+    def _btn(self, parent, text: str, command, style: str = "primary") -> tk.Button:
+        styles = {
+            "primary": {
+                "bg": BPF, "fg": BPT,
+                "activebackground": "#374151", "activeforeground": BPT,
+                "font": FONT_SH, "padx": 14, "pady": 7,
+            },
+            "secondary": {
+                "bg": BSF, "fg": BST,
+                "activebackground": BORDER, "activeforeground": BST,
+                "font": FONT_B, "padx": 10, "pady": 6,
+            },
+            "danger": {
+                "bg": BDF, "fg": BDT,
+                "activebackground": "#B91C1C", "activeforeground": BDT,
+                "font": FONT_SH, "padx": 14, "pady": 7,
+            },
+            "danger_sm": {
+                "bg": BDF, "fg": BDT,
+                "activebackground": "#B91C1C", "activeforeground": BDT,
+                "font": FONT_M, "padx": 8, "pady": 3,
+            },
+        }
+        s = styles.get(style, styles["primary"])
+        return tk.Button(
+            parent, text=text, command=command,
+            relief="flat", bd=0, cursor="hand2",
+            **s,
+        )
+
+    # ------------------------------------------------------------------
+    # Logica da aba de configuracoes
+    # ------------------------------------------------------------------
+
+    def _update_preview(self, *_):
+        if not hasattr(self, "_lbl_preview") or self._lbl_preview is None:
+            return
+        date_str = date.today().strftime("%d_%m_%y")
+        parts = [date_str]
+        if self._var_counter.get():
+            db = self.cfg.get("db_folder", "")
+            try:
+                n = organizer.next_dia_number(Path(db)) if db and Path(db).is_dir() else 1
+            except Exception:
+                n = 1
+            parts.insert(0, f"Dia{n}")
+        letter = self._var_letter.get().strip().upper() or "V"
+        if self._var_initial.get():
+            parts.append(letter)
+        self._lbl_preview.config(text="_".join(parts))
+
+    def _on_initial_var_change(self, *_):
+        if hasattr(self, "entry_letter") and self.entry_letter:
+            self.entry_letter.config(
+                state="normal" if self._var_initial.get() else "disabled"
+            )
+        self._update_preview()
+
+    def _save_settings(self):
+        try:
+            slots = int(self._var_slots.get() or "6")
+            thresh = int(self._var_thresh.get() or "5")
+        except ValueError:
+            self._show_result_popup(False, "Valores inválidos. Verifique os campos numéricos.")
+            return
+        letter = self._var_letter.get().strip().upper() or "V"
+        self.cfg["include_day_counter"]    = self._var_counter.get()
+        self.cfg["include_person_initial"] = self._var_initial.get()
+        self.cfg["person_initial"]         = letter
+        self.cfg["slots_per_day"]          = slots
+        self.cfg["hash_threshold"]         = thresh
+        config.save_config(self.cfg)
+        self._var_letter.set(letter)
+        self._show_result_popup(True, "Configurações salvas com sucesso!")
+
+    # ------------------------------------------------------------------
+    # Pasta de analise
+    # ------------------------------------------------------------------
+
+    def _refresh_db_folder_label(self):
+        folder = self.cfg.get("db_folder") or ""
+        self.lbl_db_folder.config(
+            text=folder if folder else "(nenhuma pasta selecionada)",
+            fg=TXT_B if folder else TXT_M,
+        )
+
+    def choose_db_folder(self):
+        folder = filedialog.askdirectory(
+            title="Selecione a pasta onde estao os envios anteriores"
+        )
+        if folder:
+            self.cfg["db_folder"] = folder
+            config.save_config(self.cfg)
+            self._refresh_db_folder_label()
+            self._update_preview()
 
     # ------------------------------------------------------------------
     # Botao Colar / Limpar
     # ------------------------------------------------------------------
+
     def _on_link_change(self, event=None):
         has = bool(self.entry_link.get().strip())
         self.btn_paste_clear.config(text="Limpar" if has else "Colar")
@@ -359,33 +728,19 @@ class App(tk.Tk):
                 pass
 
     # ------------------------------------------------------------------
-    # Helpers de UI
+    # Log
     # ------------------------------------------------------------------
-    def _refresh_db_folder_label(self):
-        folder = self.cfg.get("db_folder") or ""
-        self.lbl_db_folder.config(text=folder if folder else "(nenhuma pasta selecionada)")
-
-    def choose_db_folder(self):
-        folder = filedialog.askdirectory(
-            title="Selecione a pasta onde estao os envios anteriores"
-        )
-        if folder:
-            self.cfg["db_folder"] = folder
-            config.save_config(self.cfg)
-            self._refresh_db_folder_label()
 
     def _log_numbered(self, msg: str):
-        """Cabecalho numerado de cada etapa — [N] texto."""
         self._log_counter += 1
         self.txt_log.config(state="normal")
         if self._log_counter > 1:
-            self.txt_log.insert("end", "\n")   # linha em branco entre etapas
+            self.txt_log.insert("end", "\n")
         self.txt_log.insert("end", f"[{self._log_counter}] {msg}\n")
         self.txt_log.see("end")
         self.txt_log.config(state="disabled")
 
     def log(self, msg: str):
-        """Detalhe dentro da etapa atual — sem numero, recuado."""
         self.txt_log.config(state="normal")
         self.txt_log.insert("end", f"  {msg}\n")
         self.txt_log.see("end")
@@ -402,37 +757,32 @@ class App(tk.Tk):
         self.lbl_status.config(text=STEPS[step_index])
 
     # ------------------------------------------------------------------
-    # Popup de resultado (clique em qualquer lugar do popup para fechar)
+    # Popup de resultado
     # ------------------------------------------------------------------
+
     def _show_result_popup(self, success: bool, msg: str):
         self._close_result_popup()
         popup = tk.Toplevel(self)
         self._result_popup = popup
-        popup.title("Sucesso" if success else "Erro")
+        popup.title("Sucesso" if success else "Aviso")
         popup.resizable(False, False)
         popup.transient(self)
         popup.attributes("-topmost", True)
 
-        bg = "#e8f5e9" if success else "#ffebee"
-        fg = "#1b5e20" if success else "#b71c1c"
+        bg = OK_BG if success else ERR_BG
+        fg = OK_FG if success else ERR_FG
         icon = "✓" if success else "✗"
         popup.configure(bg=bg, cursor="hand2")
 
         tk.Label(
-            popup,
-            text=f"{icon}  {msg}",
-            bg=bg, fg=fg,
-            font=("Arial", 10),
-            wraplength=380,
-            padx=24, pady=16,
-            justify="left",
+            popup, text=f"{icon}  {msg}",
+            bg=bg, fg=fg, font=FONT_B,
+            wraplength=380, padx=24, pady=18, justify="left",
         ).pack()
         tk.Label(
-            popup,
-            text="[ Clique em qualquer lugar aqui para fechar ]",
-            bg=bg, fg="#aaa",
-            font=("Arial", 8),
-        ).pack(pady=(0, 12))
+            popup, text="[ clique para fechar ]",
+            bg=bg, fg=TXT_M, font=FONT_M,
+        ).pack(pady=(0, 10))
 
         def dismiss(event=None):
             self._close_result_popup()
@@ -440,8 +790,6 @@ class App(tk.Tk):
         popup.bind("<Button-1>", dismiss)
         for child in popup.winfo_children():
             child.bind("<Button-1>", dismiss)
-
-        # Clicar em qualquer lugar da janela principal tambem fecha o popup
         self.bind("<Button-1>", lambda e: dismiss())
 
         self.update_idletasks()
@@ -463,8 +811,59 @@ class App(tk.Tk):
             pass
 
     # ------------------------------------------------------------------
+    # Dialog de confirmacao
+    # ------------------------------------------------------------------
+
+    def _confirm_dialog(self, title: str, message: str) -> bool:
+        """Dialog modal com CONFIRMAR / CANCELAR. Retorna True se confirmado."""
+        result = tk.BooleanVar(value=False)
+
+        dlg = tk.Toplevel(self)
+        dlg.title(title)
+        dlg.resizable(False, False)
+        dlg.transient(self)
+        dlg.grab_set()
+        dlg.attributes("-topmost", True)
+        dlg.configure(bg=PANEL)
+
+        tk.Label(
+            dlg, text=message,
+            bg=PANEL, fg=TXT_B, font=FONT_B,
+            wraplength=320, justify="center",
+            padx=28, pady=22,
+        ).pack()
+
+        btn_row = tk.Frame(dlg, bg=PANEL)
+        btn_row.pack(pady=(0, 20))
+
+        def do_cancel():
+            result.set(False)
+            dlg.destroy()
+
+        def do_confirm():
+            result.set(True)
+            dlg.destroy()
+
+        self._btn(btn_row, "CANCELAR",  do_cancel,  "secondary").pack(side="left", padx=(0, 10))
+        self._btn(btn_row, "CONFIRMAR", do_confirm, "danger").pack(side="left")
+
+        self.update_idletasks()
+        dlg.update_idletasks()
+        w, h = 390, 170
+        x = self.winfo_x() + (self.winfo_width() - w) // 2
+        y = self.winfo_y() + (self.winfo_height() - h) // 2
+        dlg.geometry(f"{w}x{h}+{x}+{y}")
+
+        dlg.wait_window()
+        return result.get()
+
+    # ------------------------------------------------------------------
     # Painel de historico
     # ------------------------------------------------------------------
+
+    def _on_hist_scroll(self, event):
+        self._hist_canvas.yview_scroll(int(-1 * (event.delta / 120)), "units")
+
     def _reload_history_panel(self):
         for w in self._hist_inner.winfo_children():
             w.destroy()
@@ -474,20 +873,23 @@ class App(tk.Tk):
             tk.Label(
                 self._hist_inner,
                 text="Nenhum envio registrado ainda.",
-                fg="gray",
-                font=("Arial", 9),
-            ).pack(pady=12, padx=12)
+                fg=TXT_M, font=FONT_B, bg=PANEL,
+            ).pack(pady=20, padx=12)
             return
         for entry in entries:
             self._add_history_row(entry)
 
     def _add_history_row(self, entry: dict):
-        row = tk.Frame(self._hist_inner, bd=1, relief="solid", padx=4, pady=4)
-        row.pack(fill="x", padx=4, pady=2)
+        row_outer = tk.Frame(self._hist_inner, bg=BORDER, padx=1, pady=1)
+        row_outer.pack(fill="x", padx=4, pady=2)
+        row = tk.Frame(row_outer, bg=PANEL, padx=8, pady=6)
+        row.pack(fill="both", expand=True)
 
         # Miniatura
-        thumb_frame = tk.Frame(row, width=THUMB_SIZE[0] + 4, height=THUMB_SIZE[1] + 4)
-        thumb_frame.pack(side="left", padx=(0, 8))
+        thumb_frame = tk.Frame(
+            row, bg=INNER, width=THUMB_SIZE[0] + 4, height=THUMB_SIZE[1] + 4
+        )
+        thumb_frame.pack(side="left", padx=(0, 10))
         thumb_frame.pack_propagate(False)
         thumb_path = entry.get("thumbnail", "")
         loaded = False
@@ -497,76 +899,73 @@ class App(tk.Tk):
                 img.thumbnail(THUMB_SIZE, Image.LANCZOS)
                 photo = ImageTk.PhotoImage(img)
                 self._thumb_refs.append(photo)
-                tk.Label(thumb_frame, image=photo).pack(expand=True)
+                tk.Label(thumb_frame, image=photo, bg=INNER).pack(expand=True)
                 loaded = True
             except Exception:
                 pass
         if not loaded:
             tk.Label(
-                thumb_frame, text="[sem\nimagem]", fg="gray", font=("Arial", 7), justify="center"
+                thumb_frame, text="[sem\nimagem]",
+                fg=TXT_M, font=FONT_M, justify="center", bg=INNER,
             ).pack(expand=True)
 
         # Informacoes textuais
-        info = tk.Frame(row)
+        info = tk.Frame(row, bg=PANEL)
         info.pack(side="left", fill="x", expand=True)
 
-        folder = entry.get("folder", "")
-        save_dt = entry.get("save_datetime", "")
-        url = entry.get("url", "")
-        meta = entry.get("meta", {})
+        folder   = entry.get("folder", "")
+        save_dt  = entry.get("save_datetime", "")
+        url      = entry.get("url", "")
+        meta     = entry.get("meta", {})
 
-        tk.Label(info, text=f"Pasta: {folder}", anchor="w", font=("Arial", 9, "bold")).pack(
-            fill="x"
-        )
-        tk.Label(info, text=f"Salvo em: {save_dt}", anchor="w", font=("Arial", 8)).pack(fill="x")
+        tk.Label(
+            info, text=folder, anchor="w",
+            font=FONT_SH, bg=PANEL, fg=TXT_H,
+        ).pack(fill="x")
+        tk.Label(
+            info, text=save_dt, anchor="w",
+            font=FONT_S, bg=PANEL, fg=TXT_M,
+        ).pack(fill="x")
 
-        # Linha de metricas com icones
-        meta_frame = tk.Frame(info)
-        meta_frame.pack(fill="x", pady=(1, 0))
-        font8 = ("Arial", 8)
-
+        meta_row = tk.Frame(info, bg=PANEL)
+        meta_row.pack(fill="x", pady=(2, 0))
         for ico, key in [
             (self._ico_eye, "views"),
             (self._ico_heart, "likes"),
             (self._ico_bubble, "comments"),
         ]:
-            tk.Label(meta_frame, image=ico).pack(side="left", padx=(0, 2))
-            tk.Label(meta_frame, text=meta.get(key, "N/D"), font=font8, anchor="w").pack(
-                side="left", padx=(0, 10)
-            )
+            tk.Label(meta_row, image=ico, bg=PANEL).pack(side="left", padx=(0, 2))
+            tk.Label(
+                meta_row, text=meta.get(key, "N/D"),
+                font=FONT_M, bg=PANEL, fg=TXT_B, anchor="w",
+            ).pack(side="left", padx=(0, 10))
 
-        # URL resumida + botao copiar
-        url_frame = tk.Frame(info)
-        url_frame.pack(fill="x", pady=(1, 0))
+        url_row = tk.Frame(info, bg=PANEL)
+        url_row.pack(fill="x", pady=(1, 0))
         url_short = (url[:68] + "...") if len(url) > 71 else url
-        tk.Label(url_frame, text=url_short, font=("Arial", 7), fg="#aaa", anchor="w").pack(
-            side="left", fill="x", expand=True
-        )
-        btn_copy = tk.Button(
-            url_frame,
-            image=self._ico_copy,
-            relief="flat",
-            padx=2, pady=0,
-            cursor="hand2",
+        tk.Label(
+            url_row, text=url_short,
+            font=("Consolas", 7), fg=TXT_M, bg=PANEL, anchor="w",
+        ).pack(side="left", fill="x", expand=True)
+        tk.Button(
+            url_row, image=self._ico_copy,
+            relief="flat", bd=0, padx=2, pady=0,
+            bg=PANEL, activebackground=INNER, cursor="hand2",
             command=lambda u=url: self._copy_to_clipboard(u),
-        )
-        btn_copy.pack(side="right", padx=(4, 0))
+        ).pack(side="right", padx=(4, 0))
 
     def _copy_to_clipboard(self, text: str):
         self.clipboard_clear()
         self.clipboard_append(text)
 
     def _reset_history(self):
+        if not self._confirm_dialog(
+            "Resetar Histórico",
+            "Deseja realmente apagar todo o histórico de envios?\n\nEsta ação não pode ser desfeita.",
+        ):
+            return
         _save_history([])
-        for w in self._hist_inner.winfo_children():
-            w.destroy()
-        self._thumb_refs.clear()
-        tk.Label(
-            self._hist_inner,
-            text="Nenhum envio registrado ainda.",
-            fg="gray",
-            font=("Arial", 9),
-        ).pack(pady=12, padx=12)
+        self._reload_history_panel()
 
     def _record_history(self, url: str, slot: Path):
         thumb_path = ""
@@ -589,13 +988,11 @@ class App(tk.Tk):
             "thumbnail": thumb_path,
             "meta": {"views": "N/D", "likes": "N/D", "comments": "N/D"},
         }
-
         entries = _load_history()
         entries.insert(0, entry)
         _save_history(entries)
         self.after(0, self._reload_history_panel)
 
-        # Busca metadados em segundo plano e atualiza
         def fetch_and_update():
             meta = _try_fetch_ig_meta(url)
             entry["meta"] = meta
@@ -612,25 +1009,21 @@ class App(tk.Tk):
     # ------------------------------------------------------------------
     # Pipeline
     # ------------------------------------------------------------------
+
     def start_pipeline(self):
         link = self.entry_link.get().strip()
         if not link:
-            self._show_result_popup(
-                False, "Cole o link da publicacao do Instagram antes de iniciar."
-            )
+            self._show_result_popup(False, "Cole o link da publicação do Instagram antes de iniciar.")
             return
-
         db_folder = self.cfg.get("db_folder")
         if not db_folder or not Path(db_folder).is_dir():
-            self._show_result_popup(False, "Selecione a pasta de analise antes de iniciar.")
+            self._show_result_popup(False, "Selecione a pasta de análise antes de iniciar.")
             return
-
         self.btn_start.config(state="disabled")
         self.btn_paste_clear.config(state="disabled")
         self.progress["value"] = 0
         self.lbl_status.config(text=STEPS[0])
-        self.clear_log()  # limpa mensagens do processo anterior
-
+        self.clear_log()
         threading.Thread(
             target=self._run_pipeline, args=(link, Path(db_folder)), daemon=True
         ).start()
@@ -639,12 +1032,16 @@ class App(tk.Tk):
         tmp_dir = Path(tempfile.mkdtemp(prefix="instabot_"))
         try:
             self._step(0, "Verificando configuracoes...")
-            initial = self.cfg.get("person_initial", "V")
-            slots = self.cfg.get("slots_per_day", 6)
-            threshold = self.cfg.get("hash_threshold", 5)
+            initial     = self.cfg.get("person_initial", "V")
+            slots       = self.cfg.get("slots_per_day", 6)
+            threshold   = self.cfg.get("hash_threshold", 5)
+            inc_counter = self.cfg.get("include_day_counter", True)
+            inc_initial = self.cfg.get("include_person_initial", True)
 
             self._step(1, "Preparando pasta do dia...")
-            day_folder = organizer.ensure_day_folder(db_folder, initial, slots)
+            day_folder = organizer.ensure_day_folder(
+                db_folder, initial, slots, inc_counter, inc_initial
+            )
             slot = organizer.find_next_empty_slot(day_folder, slots)
             if slot is None:
                 raise RuntimeError(
@@ -659,7 +1056,7 @@ class App(tk.Tk):
             self._step(3, "Verificando repeticoes...")
             post_index = dedup.build_post_index(db_folder)
             new_hashes = dedup.hash_new_media(media_paths)
-            duplicate = dedup.find_duplicate_post(new_hashes, post_index, threshold)
+            duplicate  = dedup.find_duplicate_post(new_hashes, post_index, threshold)
             if duplicate:
                 existing_folder, max_dist = duplicate
                 raise RuntimeError(
@@ -686,13 +1083,14 @@ class App(tk.Tk):
     # ------------------------------------------------------------------
     # Atualizacoes de UI thread-safe
     # ------------------------------------------------------------------
+
     def _step(self, index: int, text: str):
         self.after(0, lambda: (self.set_step(index), self._log_numbered(text)))
 
     def _log_async(self, msg: str):
         self.after(0, lambda: self.log(msg))
 
-    def _done(self, success: bool, msg: str, link: str = "", slot: Path | None = None):
+    def _done(self, success: bool, msg: str, link: str = "", slot: "Path | None" = None):
         def finish():
             self.btn_start.config(state="normal")
             self.btn_paste_clear.config(state="normal")
@@ -703,7 +1101,7 @@ class App(tk.Tk):
                     self._record_history(link, slot)
             else:
                 self.progress["value"] = 0
-                self.lbl_status.config(text="Erro - veja mensagens abaixo")
+                self.lbl_status.config(text="Erro — veja o LOG abaixo")
             self._show_result_popup(success, msg)
 
         self.after(0, finish)

@@ -74,18 +74,28 @@ def find_duplicate_post(
     threshold: int = 5,
 ) -> Optional[tuple[Path, int]]:
     """Compara as primeiras imagens da nova publicacao com as publicacoes ja
-    enviadas. Retorna (pasta_existente, distancia_maxima) se for repetida,
+    enviadas usando melhor alinhamento: cada imagem nova e comparada com TODAS
+    as imagens do post historico, nao apenas a da mesma posicao. Isso garante
+    deteccao mesmo se um post antigo tiver sido salvo fora de ordem.
+
+    Retorna (pasta_existente, distancia_maxima_do_melhor_par) se for repetida,
     ou None se nao houver repeticao.
     """
     if not new_hashes:
         return None
 
     for existing_folder, existing_hashes in post_index:
-        n = min(len(new_hashes), len(existing_hashes))
-        if n == 0:
+        if not existing_hashes:
             continue
-        distances = [new_hashes[i] - existing_hashes[i] for i in range(n)]
-        if all(d <= threshold for d in distances):
-            return existing_folder, max(distances)
+
+        # Para cada imagem nova, encontra a distancia minima com qualquer
+        # imagem do post historico (melhor alinhamento, tolera ordem errada).
+        best_distances = []
+        for nh in new_hashes:
+            best = min(nh - eh for eh in existing_hashes)
+            best_distances.append(best)
+
+        if all(d <= threshold for d in best_distances):
+            return existing_folder, max(best_distances)
 
     return None

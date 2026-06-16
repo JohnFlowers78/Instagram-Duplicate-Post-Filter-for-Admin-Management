@@ -1,0 +1,5 @@
+Pillow
+imagehash
+playwright
+playwright-stealth
+requests

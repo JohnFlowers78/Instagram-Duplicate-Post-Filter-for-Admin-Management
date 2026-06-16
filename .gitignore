@@ -1,0 +1,21 @@
+# Ambiente virtual Python
+instabot/venv/
+
+# Perfil do Chrome (cookies/sessão do navegador)
+instabot/data/browser_profile/
+
+# Dados do usuário (configuração local e histórico)
+instabot/data/config.json
+instabot/data/history.json
+
+# Scripts de depuração (não fazem parte do produto)
+instabot/debug/
+
+# Cache Python
+__pycache__/
+*.pyc
+*.pyo
+
+# Arquivos temporários
+*.tmp
+instabot_*/

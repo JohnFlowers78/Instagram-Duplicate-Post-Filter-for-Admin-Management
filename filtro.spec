@@ -2,26 +2,29 @@
 # PyInstaller 6.x — Filtro de Repetidas
 # Gera dist/FiltroDeRepetidas/ (pasta portátil, sem Python no destino).
 
-from PyInstaller.utils.hooks import collect_data_files, collect_submodules
+from PyInstaller.utils.hooks import collect_data_files, collect_submodules, collect_all
 
+# collect_all garante que os binarios dos decoders de imagem do PIL (JPEG, PNG, etc.)
+# sejam incluidos no bundle — sem isso Image.open() falha silenciosamente no .exe.
+pil_datas, pil_binaries, pil_hiddenimports = collect_all("PIL")
 pw_stealth_datas = collect_data_files("playwright_stealth")
 playwright_datas = collect_data_files("playwright")
 
 a = Analysis(
     ["instabot\\main.py"],
     pathex=["instabot"],
-    binaries=[],
+    binaries=[*pil_binaries],
     datas=[
         ("instabot\\assets", "assets"),
+        *pil_datas,
         *pw_stealth_datas,
         *playwright_datas,
     ],
     hiddenimports=[
-        "PIL._tkinter_finder",
-        "PIL.Image",
-        "PIL.ImageTk",
-        "PIL.ImageDraw",
+        *pil_hiddenimports,
         "imagehash",
+        *collect_submodules("imagehash"),
+        *collect_submodules("numpy"),
         "requests",
         "playwright.sync_api",
         *collect_submodules("playwright"),
@@ -29,7 +32,7 @@ a = Analysis(
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],
-    excludes=["matplotlib", "scipy", "pandas", "IPython"],
+    excludes=["matplotlib", "pandas", "IPython"],
     noarchive=False,
 )
 

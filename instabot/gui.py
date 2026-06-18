@@ -4,6 +4,7 @@ import shutil
 import tempfile
 import threading
 import tkinter as tk
+import webbrowser
 from datetime import date, datetime
 from pathlib import Path
 from tkinter import filedialog, ttk
@@ -804,11 +805,33 @@ class App(tk.Tk):
         for entry in entries:
             self._add_history_row(entry)
 
+    def _delete_history_entry(self, entry: dict):
+        entries = _load_history()
+        new_entries = [
+            e for e in entries
+            if not (e.get("url") == entry.get("url") and
+                    e.get("save_datetime") == entry.get("save_datetime"))
+        ]
+        _save_history(new_entries)
+        self._reload_history_panel()
+
     def _add_history_row(self, entry: dict):
         row_outer = tk.Frame(self._hist_inner, bg=BORDER, padx=1, pady=1)
         row_outer.pack(fill="x", padx=4, pady=2)
         row = tk.Frame(row_outer, bg=PANEL, padx=8, pady=6)
         row.pack(fill="both", expand=True)
+
+        # Botao de deletar (x vermelho ao hover) — empacotado antes para ficar a direita
+        del_btn = tk.Label(
+            row, text="×",
+            font=("Segoe UI", 12, "bold"),
+            fg=TXT_M, bg=PANEL,
+            cursor="hand2", padx=4,
+        )
+        del_btn.pack(side="right", anchor="n")
+        del_btn.bind("<Enter>", lambda e: del_btn.config(fg=BDF))
+        del_btn.bind("<Leave>", lambda e: del_btn.config(fg=TXT_M))
+        del_btn.bind("<Button-1>", lambda e, ent=entry: self._delete_history_entry(ent))
 
         # Miniatura
         thumb_frame = tk.Frame(
@@ -868,10 +891,15 @@ class App(tk.Tk):
         url_row = tk.Frame(info, bg=PANEL)
         url_row.pack(fill="x", pady=(1, 0))
         url_short = (url[:68] + "...") if len(url) > 71 else url
-        tk.Label(
+        url_lbl = tk.Label(
             url_row, text=url_short,
-            font=("Consolas", 7), fg=TXT_M, bg=PANEL, anchor="w",
-        ).pack(side="left", fill="x", expand=True)
+            font=("Consolas", 7), fg=ACCENT, bg=PANEL, anchor="w",
+            cursor="hand2",
+        )
+        url_lbl.pack(side="left", fill="x", expand=True)
+        url_lbl.bind("<Button-1>", lambda e, u=url: webbrowser.open(u))
+        url_lbl.bind("<Enter>", lambda e: url_lbl.config(font=("Consolas", 7, "underline")))
+        url_lbl.bind("<Leave>", lambda e: url_lbl.config(font=("Consolas", 7)))
         tk.Button(
             url_row, image=self._ico_copy,
             relief="flat", bd=0, padx=2, pady=0,

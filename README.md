@@ -9,9 +9,11 @@ Desenvolvido para operações de marketing digital que reciclam conteúdo do pr�
 
 1. Recebe o link de uma publicação do Instagram (carrossel ou imagem única)
 2. Baixa as mídias via [SnapInsta.to](https://snapinsta.to/pt) usando um navegador Chrome automatizado
-3. Compara as imagens com todas as publicações já enviadas usando hash perceptual
-4. Se não for repetida, salva automaticamente na pasta do dia de hoje (criando-a se necessário)
-5. Registra curtidas, comentários e thumbnail no histórico interno do app
+3. Compara as imagens com todas as publicações já enviadas (histórico) **e** com as que estão na Fila de Espera, usando hash perceptual
+4. Se não for repetida, **usa agora** (salva na próxima pasta livre do dia) ou **adiciona à Fila de Espera** para usar depois — você escolhe na chave seletora
+5. Registra curtidas, comentários, data de publicação e thumbnail no histórico interno do app
+
+Tem ainda **tema claro/escuro**, **Fila de Espera** reordenável por arraste e painéis redimensionáveis.
 
 ---
 
@@ -101,10 +103,30 @@ O navegador Chrome que o app abre é um perfil persistente. Na primeira vez:
 ### Fluxo de uso normal
 
 1. Clique em **Selecionar...** e escolha a pasta raiz onde ficam todas as pastas de envio
-2. Cole o link de uma publicação do Instagram no campo de texto (ou use o botão **Colar**)
-3. Clique em **Iniciar**
-4. Acompanhe o progresso na barra e nos LOGs
-5. Um popup verde indica sucesso; vermelho indica erro ou publicação repetida
+2. Escolha o modo na chave seletora: **Utilizar agora** ou **Adicionar à Fila de Espera**
+3. Cole o link de uma publicação do Instagram no campo de texto (ou use o botão **Colar**)
+4. Clique em **Iniciar** (ou **Adicionar à Fila**)
+5. Acompanhe o progresso na barra e nos LOGs
+6. Um popup verde indica sucesso; vermelho indica erro ou publicação repetida
+
+### Fila de Espera
+
+Publicações adicionadas à Fila de Espera são **baixadas e estacionadas** para uso posterior. O painel é aberto pela seta **❯** no canto superior direito e fica à direita da tela.
+
+- **Utilizar de Próxima** (verde): manda a publicação para a próxima pasta livre do dia e a remove da fila. Se não houver pasta livre, um aviso flutuante aparece por alguns segundos.
+- **Remover da Espera** (vermelho): tira da fila e apaga as imagens estacionadas (libera espaço).
+- **Reordenar**: arraste pela alça **⠿** (canto superior direito de cada item) para mudar a ordem — o movimento é suave, estilo edição de playlist.
+- O painel é **redimensionável** (puxe a alça **⋮** na borda esquerda dele).
+
+Só entram na fila publicações **não repetidas** (o filtro roda antes). Se você tentar **Utilizar agora** uma publicação que já está na fila, o app avisa — e, se você confirmar o uso, a cópia da fila é removida automaticamente.
+
+### Tema claro/escuro
+
+Em **Configurações → Aparência**, alterne entre **☀ Claro** e **☾ Escuro**. A troca é aplicada na hora e fica salva para as próximas aberturas.
+
+### Painéis redimensionáveis
+
+A divisória **• • •** entre os LOGs e o Histórico pode ser arrastada para dar mais espaço a um ou outro.
 
 ### O que acontece na pasta selecionada
 
@@ -138,6 +160,7 @@ As pastas de slot abrem automaticamente em modo **Ícones Grandes** no Explorer 
 | Inicial da pessoa | `V` | Letra que identifica o responsável |
 | Publicações por dia | `6` | Quantos slots são criados na pasta do dia |
 | Limiar de similaridade | `5` | Sensibilidade do filtro de duplicatas (veja abaixo) |
+| Aparência (tema) | `Claro` | Alterna entre tema claro e escuro (aplica na hora) |
 
 O **preview** na aba de Configurações mostra em tempo real como ficará o nome da pasta.
 
@@ -147,14 +170,21 @@ O **preview** na aba de Configurações mostra em tempo real como ficará o nome
 
 O app usa **hash perceptual** (`pHash` via biblioteca `imagehash`) para comparar imagens visualmente, não byte a byte. Isso garante que variações de compressão, redimensionamento ou metadados não causem falsos negativos.
 
-**Parâmetros relevantes:**
+A comparação funciona como um **jogo da memória bijetivo** entre o carrossel novo e cada publicação já registrada:
 
-- **COMPARE_FIRST_N = 4** — apenas as 4 primeiras imagens do carrossel são comparadas. As últimas costumam ser cards de CTA que se repetem entre publicações diferentes, o que geraria falsos positivos.
-- **Limiar de similaridade (threshold)** — distância máxima entre hashes para considerar duas imagens iguais:
-  - `0` = pixel-perfect idêntico
-  - `5` (padrão) = tolera compressão JPEG e pequenas diferenças
-  - `10+` = mais tolerante, pode gerar falsos positivos
-- **Melhor alinhamento** — cada imagem nova é comparada com *todas* as imagens do post histórico (não apenas a da mesma posição), garantindo detecção mesmo se um post antigo tiver sido salvo fora de ordem
+- **Todos os cards são comparados** (não apenas os primeiros) — um card único no meio ou no fim do carrossel é suficiente para distinguir duas publicações diferentes.
+- **Matching bipartido máximo** (algoritmo de *augmenting paths*) — cada imagem só pode ser pareada uma vez, e o resultado é sempre o ótimo, independente da ordem dos cards. Isso evita tanto o falso positivo (cards de template compartilhados) quanto o falso negativo (cards reordenados).
+- **Tolerância do card final (CTA)** — o último card costuma mudar entre publicações (data, oferta, chamada). Por isso o algoritmo **ignora 1 card de diferença**: se todas as imagens menos uma encontram par, é tratado como repetida (e você confere visualmente no balão lado a lado).
+- **Checa histórico + Fila de Espera** — a publicação nova é comparada com o histórico de envios **e** com o que está aguardando na Fila de Espera.
+
+**Limiar de similaridade (threshold)** — distância máxima entre hashes para considerar duas imagens iguais:
+- `0` = pixel-perfect idêntico
+- `5` (padrão) = tolera compressão JPEG e pequenas diferenças
+- `10+` = mais tolerante, pode gerar falsos positivos
+
+Quando uma repetida é detectada, aparece um **balão lado a lado** com a imagem inicial da nova publicação e da já existente, com a opção de **confirmar** ou **salvar mesmo assim** (caso seja um falso positivo).
+
+**Cache de hashes** — cada pasta de envio guarda um `.hashes.json` com os hashes já calculados, carregado instantaneamente nas próximas comparações. O cache é recalculado automaticamente se as imagens da pasta mudarem.
 
 ---
 
@@ -164,11 +194,12 @@ O painel **Histórico de Envios** na aba principal exibe todos os posts processa
 
 - Thumbnail da primeira imagem
 - Nome da pasta de envio
-- Data e hora do processamento
-- Curtidas e comentários coletados do Instagram
-- Link original (com botão de copiar)
+- **Salva em:** data e hora do processamento
+- Curtidas, comentários e **Postado em:** (data de publicação no Instagram)
+- Link original clicável (abre no navegador) com botão de copiar — ao copiar, aparece um mini balão **"Copiado!"**
+- Botão **×** para apagar um item específico do histórico
 
-Para apagar o histórico, clique em **Resetar** (um diálogo de confirmação será exibido).  
+Para apagar tudo, clique em **Resetar** (um diálogo de confirmação será exibido).  
 O arquivo de histórico fica em `data/history.json`.
 
 ---
@@ -183,8 +214,10 @@ O arquivo de histórico fica em `data/history.json`.
 │   │   └── logo_header.png    ← logo exibida no header da GUI
 │   ├── venv/                  ← ambiente virtual Python (não commitado)
 │   ├── data/                  ← dados do usuário (não commitados)
-│   │   ├── config.json        ← configurações salvas
+│   │   ├── config.json        ← configurações salvas (inclui o tema)
 │   │   ├── history.json       ← histórico de envios
+│   │   ├── waiting_queue.json ← metadados da Fila de Espera
+│   │   ├── waiting_queue/     ← imagens estacionadas na Fila de Espera
 │   │   └── browser_profile/   ← sessão persistente do Chrome (login Instagram)
 │   ├── config.py              ← leitura e escrita de configurações
 │   ├── dedup.py               ← detecção de duplicatas por hash perceptual
@@ -192,6 +225,7 @@ O arquivo de histórico fica em `data/history.json`.
 │   ├── gui.py                 ← interface gráfica (Tkinter)
 │   ├── main.py                ← ponto de entrada
 │   ├── organizer.py           ← criação e gestão das pastas de envio
+│   ├── waitqueue.py           ← persistência e imagens da Fila de Espera
 │   ├── paths.py               ← resolução de caminhos (script vs. executável)
 │   └── requirements.txt       ← dependências Python
 ├── build.bat                  ← script para gerar o executável
@@ -219,9 +253,11 @@ O arquivo de histórico fica em `data/history.json`.
 
 O Instagram e o SnapInsta.to detectam e bloqueiam browsers headless convencionais. O app usa `channel="chrome"` do Playwright para controlar o Chrome do usuário com um perfil persistente, tornando o tráfego indistinguível de uso humano.
 
-### Coleta de curtidas/comentários
+### Coleta de curtidas/comentários/data
 
 Após baixar as mídias, o app navega para a URL original do Instagram para capturar métricas do DOM. Isso requer login no Instagram naquele perfil de browser.
+
+A **data de publicação** é lida do elemento `<time>` da postagem (o `title`, que sempre traz o ano completo em pt-BR), identificado pelo permalink `/p/<shortcode>/` para não confundir com as datas dos comentários.
 
 **Detalhe crítico de implementação:** o Instagram renderiza os botões de "curtir" dos comentários *antes* da barra de ações no DOM. Por isso o seletor usa `querySelectorAll('svg[aria-label="Curtir"]')[length-1]` (o *último* SVG) para garantir que está lendo o like da barra de ações, não de um comentário. O SVG de comentar aparece apenas uma vez, então `querySelector` basta.
 

@@ -1,3 +1,4 @@
+import re
 from pathlib import Path
 from typing import Callable, Optional
 
@@ -9,6 +10,13 @@ from paths import DATA_DIR
 
 SNAPINSTA_URL = "https://snapinsta.to/pt"
 PROFILE_DIR = DATA_DIR / "browser_profile"
+
+_SHORTCODE_RE = re.compile(r"/(?:p|reel|tv)/([^/?#]+)")
+
+
+def _shortcode(url: str) -> str:
+    m = _SHORTCODE_RE.search(url or "")
+    return m.group(1) if m else ""
 
 ProgressCallback = Optional[Callable[[str], None]]
 
@@ -90,14 +98,52 @@ def _extract_links(page) -> list[str]:
     """)
 
 
-def _extract_ig_meta(page) -> dict:
-    """Extrai curtidas e comentarios do DOM do Instagram (requer sessao autenticada).
+def _extract_post_date(page, shortcode: str = "") -> Optional[str]:
+    """Extrai a data de publicacao do <time> da postagem (nao de comentarios).
+
+    O <time> da postagem fica dentro do link permanente do post (/p/<shortcode>/),
+    enquanto os <time> de comentarios ficam em links com /c/. O atributo `title`
+    traz a data completa em pt-BR (ex: '4 de junho de 2026').
+    """
+    try:
+        return page.evaluate(
+            """
+            (shortcode) => {
+                const times = [...document.querySelectorAll('time')];
+                const pick = (t) => t ? (t.getAttribute('title') || t.getAttribute('datetime') || null) : null;
+                // 1) <time> dentro do permalink exato do post (e nao de um comentario /c/)
+                for (const t of times) {
+                    const a = t.closest('a[href*="/p/"]');
+                    if (a) {
+                        const href = a.getAttribute('href') || '';
+                        if (href.includes('/p/' + shortcode) && !href.includes('/c/')) return pick(t);
+                    }
+                }
+                // 2) qualquer <time> em permalink /p/ que nao seja de comentario
+                for (const t of times) {
+                    const a = t.closest('a[href*="/p/"]');
+                    if (a && !(a.getAttribute('href') || '').includes('/c/')) return pick(t);
+                }
+                // 3) ultimo recurso: primeiro <time> que tenha title (data completa)
+                for (const t of times) { if (t.getAttribute('title')) return pick(t); }
+                return null;
+            }
+            """,
+            shortcode,
+        )
+    except Exception:
+        return None
+
+
+def _extract_ig_meta(page, shortcode: str = "") -> dict:
+    """Extrai curtidas, comentarios e data de publicacao do DOM do Instagram
+    (requer sessao autenticada).
 
     Estrategia: os SVG[aria-label="Curtir"] de reacoes de comentarios aparecem ANTES
     da barra de acoes no DOM — usa o ULTIMO SVG Curtir da pagina (sempre o da barra
     de acoes). Comentar aparece apenas uma vez (barra de acoes), entao querySelector basta.
     """
-    meta = {"likes": "N/D", "comments": "N/D", "views": "N/D"}
+    meta = {"likes": "N/D", "comments": "N/D", "views": "N/D", "post_date": "N/D"}
     try:
         result = page.evaluate("""
             () => {
@@ -182,6 +228,11 @@ def _extract_ig_meta(page) -> dict:
                     meta[k] = v
     except Exception:
         pass
+
+    date_str = _extract_post_date(page, shortcode)
+    if date_str:
+        meta["post_date"] = date_str
+
     return meta
 
 
@@ -193,7 +244,8 @@ def download_carousel(
     dest_folder.mkdir(parents=True, exist_ok=True)
     PROFILE_DIR.mkdir(parents=True, exist_ok=True)
     stealth = Stealth()
-    ig_meta: dict = {"likes": "N/D", "comments": "N/D", "views": "N/D"}
+    shortcode = _shortcode(instagram_url)
+    ig_meta: dict = {"likes": "N/D", "comments": "N/D", "views": "N/D", "post_date": "N/D"}
 
     _report(progress_cb, "Abrindo navegador...")
     with sync_playwright() as p:
@@ -258,7 +310,7 @@ def download_carousel(
                 _report(progress_cb, "Coletando dados da publicacao no Instagram...")
                 page.goto(instagram_url, wait_until="domcontentloaded", timeout=20000)
                 page.wait_for_timeout(2500)
-                ig_meta = _extract_ig_meta(page)
+                ig_meta = _extract_ig_meta(page, shortcode)
             except Exception:
                 pass
         finally:

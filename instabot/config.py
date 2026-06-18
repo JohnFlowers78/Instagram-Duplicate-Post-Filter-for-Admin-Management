@@ -12,6 +12,7 @@ DEFAULTS = {
     "hash_threshold": 5,
     "include_day_counter": True,
     "include_person_initial": True,
+    "theme": "light",
 }
 
 

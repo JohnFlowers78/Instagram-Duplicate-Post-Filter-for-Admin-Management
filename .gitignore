@@ -7,6 +7,8 @@ instabot/data/browser_profile/
 # Dados do usuário (configuração local e histórico)
 instabot/data/config.json
 instabot/data/history.json
+instabot/data/waiting_queue.json
+instabot/data/waiting_queue/
 
 # Scripts de depuração (não fazem parte do produto)
 instabot/debug/

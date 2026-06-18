@@ -736,6 +736,14 @@ class App(tk.Tk):
         except Exception:
             pass
 
+    def _reset_after_duplicate(self):
+        """Reset silencioso apos o usuario confirmar repetida no dialog — sem popup extra."""
+        self.btn_start.config(state="normal")
+        self.btn_paste_clear.config(state="normal")
+        self.progress["value"] = 0
+        self.lbl_status.config(text="Aguardando...")
+        self.clear_log()
+
     # ------------------------------------------------------------------
     # Dialog de confirmacao
     # ------------------------------------------------------------------
@@ -920,6 +928,112 @@ class App(tk.Tk):
         _save_history([])
         self._reload_history_panel()
 
+    def _find_first_image(self, folder: Path):
+        for name in ("raw_1", "1"):
+            for ext in ("jpg", "jpeg", "png", "webp"):
+                p = folder / f"{name}.{ext}"
+                if p.exists():
+                    return p
+        return None
+
+    def _show_duplicate_dialog(
+        self,
+        new_folder: Path,
+        existing_folder: Path,
+        distance: int,
+        db_folder: Path,
+        decision: list,
+        event: threading.Event,
+    ):
+        dlg = tk.Toplevel(self)
+        dlg.title("Publicacao Repetida Detectada")
+        dlg.resizable(False, False)
+        dlg.transient(self)
+        dlg.attributes("-topmost", True)
+        dlg.configure(bg=ERR_BG)
+
+        IMG_W, IMG_H = 170, 170
+        # Refs ficam em self para sobreviver alem do retorno da funcao (evita GC do PhotoImage)
+        self._dup_img_refs = []
+
+        tk.Label(
+            dlg, text="Publicacao Repetida Detectada",
+            font=FONT_H, bg=ERR_BG, fg=ERR_FG, pady=12,
+        ).pack()
+
+        imgs_row = tk.Frame(dlg, bg=ERR_BG)
+        imgs_row.pack(padx=20, pady=4)
+
+        def make_img_col(parent, title, img_path):
+            col = tk.Frame(parent, bg=ERR_BG)
+            col.pack(side="left", padx=10)
+            tk.Label(col, text=title, font=FONT_M, bg=ERR_BG, fg=ERR_FG).pack(pady=(0, 4))
+            frame = tk.Frame(col, bg=BORDER, padx=1, pady=1)
+            frame.pack()
+            inner = tk.Frame(frame, bg=INNER, width=IMG_W, height=IMG_H)
+            inner.pack()
+            inner.pack_propagate(False)
+            if img_path and img_path.exists():
+                try:
+                    img = Image.open(img_path)
+                    img.thumbnail((IMG_W, IMG_H), Image.LANCZOS)
+                    photo = ImageTk.PhotoImage(img)
+                    self._dup_img_refs.append(photo)
+                    tk.Label(inner, image=photo, bg=INNER).pack(expand=True)
+                except Exception:
+                    tk.Label(inner, text="[erro ao\ncarregar]", fg=TXT_M, font=FONT_S, bg=INNER, justify="center").pack(expand=True)
+            else:
+                tk.Label(inner, text="[sem\nimagem]", fg=TXT_M, font=FONT_S, bg=INNER, justify="center").pack(expand=True)
+
+        make_img_col(imgs_row, "Nova publicacao", self._find_first_image(new_folder))
+        make_img_col(imgs_row, "Post ja enviado", self._find_first_image(existing_folder))
+
+        try:
+            folder_label = str(existing_folder.relative_to(db_folder))
+        except ValueError:
+            folder_label = existing_folder.name
+        tk.Label(
+            dlg,
+            text=f"Pasta: {folder_label}   |   distancia hash: {distance}",
+            font=FONT_S, bg=ERR_BG, fg=ERR_FG,
+        ).pack(pady=(10, 14))
+
+        btn_row = tk.Frame(dlg, bg=ERR_BG)
+        btn_row.pack(pady=(0, 18))
+
+        def confirm_dup(e=None):
+            try:
+                self.unbind("<Button-1>")
+            except Exception:
+                pass
+            decision[0] = "duplicate"
+            if dlg.winfo_exists():
+                dlg.destroy()
+            event.set()
+
+        def save_anyway():
+            try:
+                self.unbind("<Button-1>")
+            except Exception:
+                pass
+            decision[0] = "save"
+            if dlg.winfo_exists():
+                dlg.destroy()
+            event.set()
+
+        dlg.protocol("WM_DELETE_WINDOW", confirm_dup)
+        self._btn(btn_row, "Confirmar Repetida", confirm_dup, "secondary").pack(side="left", padx=(0, 10))
+        self._btn(btn_row, "Nao e Repetida — Salvar Mesmo Assim", save_anyway, "primary").pack(side="left")
+        # Clicar na tela principal = Confirmar Repetida (mesmo comportamento do balao de resultado)
+        self.bind("<Button-1>", lambda e: confirm_dup())
+
+        dlg.update_idletasks()
+        w = dlg.winfo_reqwidth()
+        h = dlg.winfo_reqheight()
+        x = self.winfo_x() + (self.winfo_width() - w) // 2
+        y = self.winfo_y() + (self.winfo_height() - h) // 2
+        dlg.geometry(f"+{x}+{y}")
+
     def _record_history(self, url: str, slot: Path, ig_meta: dict = None):
         thumb_path = ""
         for ext in ("jpg", "jpeg", "png", "webp"):
@@ -997,15 +1111,24 @@ class App(tk.Tk):
             self._step(3, "Verificando repeticoes...")
             post_index = dedup.build_post_index(db_folder)
             new_hashes = dedup.hash_new_media(media_paths)
+            self._log_async(
+                f"  {len(new_hashes)} img(s) novas · {len(post_index)} post(s) no historico"
+            )
             duplicate  = dedup.find_duplicate_post(new_hashes, post_index, threshold)
+            if not duplicate and post_index:
+                self._log_async(f"  Nao repetida — {dedup.best_match_stats(new_hashes, post_index, threshold)}")
             if duplicate:
                 existing_folder, max_dist = duplicate
-                raise RuntimeError(
-                    f"Publicacao repetida detectada!\n"
-                    f"As primeiras imagens sao identicas as de:\n"
-                    f"'{existing_folder.relative_to(db_folder)}'\n"
-                    f"(distancia maxima: {max_dist})"
-                )
+                dec_event = threading.Event()
+                decision = ["duplicate"]
+                self.after(0, lambda ef=existing_folder, md=max_dist: self._show_duplicate_dialog(
+                    tmp_dir, ef, md, db_folder, decision, dec_event
+                ))
+                dec_event.wait()
+                if decision[0] != "save":
+                    # Dialog ja notificou o usuario — reset silencioso sem popup extra
+                    self.after(0, self._reset_after_duplicate)
+                    return
 
             self._step(4, "Salvando arquivos na pasta de envio...")
             organizer.save_media_to_slot(slot, media_paths)

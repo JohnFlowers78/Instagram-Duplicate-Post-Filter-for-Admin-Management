@@ -115,7 +115,7 @@ def find_next_empty_slot(day_folder: Path, slots: int = 6) -> Optional[Path]:
             return slot
         media_files = [
             f for f in slot.iterdir()
-            if f.name.lower() not in ("legenda.txt", "desktop.ini")
+            if f.name.lower() not in ("legenda.txt", "desktop.ini", ".hashes.json")
         ]
         if not media_files:
             return slot
@@ -123,7 +123,9 @@ def find_next_empty_slot(day_folder: Path, slots: int = 6) -> Optional[Path]:
 
 
 def save_media_to_slot(slot: Path, media_paths: list[Path]) -> list[Path]:
-    """Copia as midias para a subpasta, renomeando em ordem: 1, 2, 3..."""
+    """Copia as midias para a subpasta, renomeando em ordem: 1, 2, 3...
+    Apos salvar, dispara o cache de hashes via dedup para que proximas
+    comparacoes carreguem do arquivo em vez de reprocessar as imagens."""
     saved = []
     for idx, src in enumerate(media_paths, start=1):
         ext = src.suffix
@@ -131,4 +133,11 @@ def save_media_to_slot(slot: Path, media_paths: list[Path]) -> list[Path]:
         dest.write_bytes(src.read_bytes())
         saved.append(dest)
     set_large_icons_view(slot)
+
+    try:
+        import dedup
+        dedup.get_all_hashes(slot)
+    except Exception:
+        pass
+
     return saved

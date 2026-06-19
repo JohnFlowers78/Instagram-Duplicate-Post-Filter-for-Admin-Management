@@ -853,6 +853,11 @@ class App(tk.Tk):
                 "activebackground": "#15803D", "activeforeground": BGT,
                 "font": FONT_M, "padx": 8, "pady": 4,
             },
+            "secondary_sm": {
+                "bg": BSF, "fg": BST,
+                "activebackground": BORDER, "activeforeground": BST,
+                "font": FONT_M, "padx": 8, "pady": 4,
+            },
         }
         s = styles.get(style, styles["primary"])
         return tk.Button(
@@ -1128,18 +1133,6 @@ class App(tk.Tk):
         row = tk.Frame(row_outer, bg=PANEL, padx=8, pady=6)
         row.pack(fill="both", expand=True)
 
-        # Botao de deletar (x vermelho ao hover) — empacotado antes para ficar a direita
-        del_btn = tk.Label(
-            row, text="×",
-            font=("Segoe UI", 12, "bold"),
-            fg=TXT_M, bg=PANEL,
-            cursor="hand2", padx=4,
-        )
-        del_btn.pack(side="right", anchor="n")
-        del_btn.bind("<Enter>", lambda e: del_btn.config(fg=BDF))
-        del_btn.bind("<Leave>", lambda e: del_btn.config(fg=TXT_M))
-        del_btn.bind("<Button-1>", lambda e, ent=entry: self._delete_history_entry(ent))
-
         # Miniatura
         thumb_frame = tk.Frame(
             row, bg=INNER, width=THUMB_SIZE[0] + 4, height=THUMB_SIZE[1] + 4
@@ -1201,15 +1194,16 @@ class App(tk.Tk):
                 font=FONT_M, bg=PANEL, fg=TXT_M, anchor="w",
             ).pack(side="left")
 
+        # URL + botao de copiar logo ao lado do link
         url_row = tk.Frame(info, bg=PANEL)
         url_row.pack(fill="x", pady=(1, 0))
-        url_short = (url[:68] + "...") if len(url) > 71 else url
+        url_short = (url[:44] + "...") if len(url) > 47 else url
         url_lbl = tk.Label(
             url_row, text=url_short,
             font=("Consolas", 7), fg=ACCENT, bg=PANEL, anchor="w",
             cursor="hand2",
         )
-        url_lbl.pack(side="left", fill="x", expand=True)
+        url_lbl.pack(side="left")
         url_lbl.bind("<Button-1>", lambda e, u=url: webbrowser.open(u))
         url_lbl.bind("<Enter>", lambda e: url_lbl.config(font=("Consolas", 7, "underline")))
         url_lbl.bind("<Leave>", lambda e: url_lbl.config(font=("Consolas", 7)))
@@ -1218,7 +1212,68 @@ class App(tk.Tk):
             relief="flat", bd=0, padx=2, pady=0,
             bg=PANEL, activebackground=INNER, cursor="hand2",
             command=lambda u=url: self._copy_to_clipboard(u),
-        ).pack(side="right", padx=(4, 0))
+        ).pack(side="left", padx=(4, 0))
+
+        # Canto superior direito (sobreposto — nao reserva coluna): Retornar + apagar.
+        # Fica fixo a direita e visivel mesmo com a UI principal estreitada.
+        topright = tk.Frame(row, bg=PANEL)
+        topright.place(relx=1.0, rely=0.0, anchor="ne")
+        self._btn(
+            topright, "↩  Retornar para a Fila",
+            lambda ent=entry: self._return_history_to_queue(ent), "secondary_sm",
+        ).pack(side="left")
+        del_btn = tk.Label(
+            topright, text="×",
+            font=("Segoe UI", 12, "bold"),
+            fg=TXT_M, bg=PANEL, cursor="hand2", padx=4,
+        )
+        del_btn.pack(side="left", padx=(6, 0))
+        del_btn.bind("<Enter>", lambda e: del_btn.config(fg=BDF))
+        del_btn.bind("<Leave>", lambda e: del_btn.config(fg=TXT_M))
+        del_btn.bind("<Button-1>", lambda e, ent=entry: self._delete_history_entry(ent))
+
+    def _return_history_to_queue(self, entry: dict):
+        """Move as imagens da pasta de envio de volta para a fila de espera.
+
+        Remove as imagens (e o cache .hashes.json) da pasta, deixando-a livre de
+        novo, e re-enfileira a publicacao para uso posterior.
+        """
+        db = self.cfg.get("db_folder")
+        folder_label = entry.get("folder", "")
+        slot = (Path(db) / folder_label) if db and folder_label else None
+
+        if not slot or not slot.is_dir():
+            # Pasta nao existe mais — apenas remove o registro do historico
+            self._delete_history_entry(entry)
+            self._show_toast("Pasta não encontrada — registro removido.", 4000, ERR_BG, ERR_FG)
+            return
+
+        images = dedup._sorted_numbered_images(slot)
+        if not images:
+            self._delete_history_entry(entry)
+            self._show_toast("Sem imagens na pasta — registro removido.", 4000, ERR_BG, ERR_FG)
+            return
+
+        # 1) Copia as imagens para a fila (preserva ordem e metadados)
+        waitqueue.add_to_queue(entry.get("url", ""), images, entry.get("meta", {}))
+
+        # 2) Esvazia a pasta: apaga as imagens numeradas e o cache de hashes
+        for img in images:
+            try:
+                img.unlink()
+            except Exception:
+                pass
+        cache = slot / dedup._HASH_CACHE
+        if cache.exists():
+            try:
+                cache.unlink()
+            except Exception:
+                pass
+
+        # 3) Remove do historico e atualiza os paineis
+        self._delete_history_entry(entry)
+        self._on_queued()  # recarrega/abre a fila
+        self._show_toast("Retornado para a Fila de Espera.", 3000, OK_BG, OK_FG)
 
     def _copy_to_clipboard(self, text: str):
         self.clipboard_clear()

@@ -7,13 +7,19 @@ Desenvolvido para operações de marketing digital que reciclam conteúdo do pr�
 
 ## O que o app faz
 
+O app tem **dois filtros**, cada um numa aba (mais a aba de Configurações):
+
+### 🔗 Filtro por Link
 1. Recebe o link de uma publicação do Instagram (carrossel ou imagem única)
 2. Baixa as mídias via [SnapInsta.to](https://snapinsta.to/pt) usando um navegador Chrome automatizado
-3. Compara as imagens com todas as publicações já enviadas (histórico) **e** com as que estão na Fila de Espera, usando hash perceptual
-4. Se não for repetida, **usa agora** (salva na próxima pasta livre do dia) ou **adiciona à Fila de Espera** para usar depois — você escolhe na chave seletora
-5. Registra curtidas, comentários, data de publicação e thumbnail no histórico interno do app
+3. Compara as imagens com a **Pasta de Destino** (seus envios) **e** com a Fila de Espera, usando hash perceptual
+4. Se não for repetida, **usa agora** (salva na próxima pasta livre do dia) ou **adiciona à Fila de Espera** — você escolhe na chave seletora
+5. Registra curtidas, comentários, data de publicação e thumbnail no histórico
 
-Tem ainda **tema claro/escuro**, **Fila de Espera** reordenável por arraste e painéis redimensionáveis.
+### 🔁 Filtro Entre Contas
+Analisa a pasta **inteira de outra conta** e monta listas reutilizáveis: cada publicação é comparada com a sua Pasta de Destino (as repetidas ficam em cinza), e você reaproveita conteúdo entre diferentes clientes. Detecta ainda o tipo de **CTA** de cada publicação por OCR (Comentar / Seguir / Guardar).
+
+Tem também **tema claro/escuro**, **Fila de Espera** reordenável por arraste, **Histórico** navegável por dia (timeline) e painéis redimensionáveis.
 
 ---
 
@@ -24,6 +30,15 @@ Tem ainda **tema claro/escuro**, **Fila de Espera** reordenável por arraste e p
 | Windows | 10 ou 11 | Testado no Windows 11 Pro |
 | Google Chrome | qualquer versão recente | Obrigatório mesmo no executável |
 | Python | 3.12 | Apenas para rodar via código-fonte |
+| Tesseract OCR | 5.x | **Opcional** — só para detectar o CTA no "Filtro Entre Contas" (veja abaixo) |
+
+### Tesseract (opcional — detecção de CTA)
+
+A leitura do CTA dos cards finais usa OCR via **Tesseract**. Sem ele o app funciona normalmente; só a linha de CTA mostra *"OCR indisponível"*.
+
+1. Baixe o instalador do Windows: **https://github.com/UB-Mannheim/tesseract/wiki**
+2. Instale em `C:\Program Files\Tesseract-OCR\` (ou deixe no PATH). Na tela de idiomas, marque **Português** e **Espanhol**.
+3. O app localiza o `tesseract.exe` sozinho (PATH → `C:\Program Files\Tesseract-OCR\` → AppData). Vale tanto para o código-fonte quanto para o executável (o Tesseract é uma instalação do sistema, não vem no `.exe`).
 
 ---
 
@@ -100,10 +115,10 @@ O navegador Chrome que o app abre é um perfil persistente. Na primeira vez:
 3. Se ainda não estiver logado, faça login manualmente nesta janela do Chrome
 4. A sessão fica salva — nas próximas vezes o login é automático
 
-### Fluxo de uso normal
+### Fluxo de uso normal (aba "Filtro por Link")
 
-1. Clique em **Selecionar...** e escolha a pasta raiz onde ficam todas as pastas de envio
-2. Escolha o modo na chave seletora: **Utilizar agora** ou **Adicionar à Fila de Espera**
+1. Em **Configurações → Pasta de Destino**, escolha a pasta raiz onde ficam todas as pastas de envio (é a sua base de comparação)
+2. Na aba **Filtro por Link**, escolha o modo na chave seletora: **Utilizar agora** ou **Adicionar à Fila de Espera**
 3. Cole o link de uma publicação do Instagram no campo de texto (ou use o botão **Colar**)
 4. Clique em **Iniciar** (ou **Adicionar à Fila**)
 5. Acompanhe o progresso na barra e nos LOGs
@@ -119,6 +134,24 @@ Publicações adicionadas à Fila de Espera são **baixadas e estacionadas** par
 - O painel é **redimensionável** (puxe a alça **⋮** na borda esquerda dele).
 
 Só entram na fila publicações **não repetidas** (o filtro roda antes). Se você tentar **Utilizar agora** uma publicação que já está na fila, o app avisa — e, se você confirmar o uso, a cópia da fila é removida automaticamente.
+
+### Filtro Entre Contas
+
+Serve para **reaproveitar conteúdo de outra conta** (por exemplo, entre clientes diferentes). Na aba **Filtro Entre Contas**:
+
+1. Selecione a **Pasta de Publicações da Conta de Origem** (as pastas seguem o mesmo padrão `Dia..._X`, a inicial no fim pode ser diferente)
+2. Dê um **nome à lista** e clique em **Analisar Conta**
+3. O app varre **todas** as publicações da pasta, compara cada uma com a sua Pasta de Destino e cria uma lista na fila da direita
+
+As listas ficam no painel da direita, com um **seletor (dropdown)** para alternar entre as contas/clientes e um botão **↻ Recarregar** (re-checa quais ainda estão disponíveis).
+
+- **Repetida** (já existe no destino) → aparece **em cinza**, mostrando em qual pasta já existe
+- **Disponível** → item colorido, com **Utilizar de Próxima** (vai pra próxima pasta livre + histórico) e fica cinza depois de usada
+- **CTA**: em segundo plano, o OCR lê os últimos cards e mostra o tipo de chamada — ex. `CTA: Comentar QUIERO · Seguir` (prioriza COMENTAR). Só roda nos itens disponíveis primeiro; se não achar, mostra "não detectada"
+- A **legenda** viaja junto: ao usar um item, o texto do `Legenda.txt` da origem é gravado na pasta de destino
+- A lista é **virtualizada** — abre leve mesmo com centenas de publicações (renderiza só o que aparece na tela)
+
+O **Histórico de Envios** é compartilhado entre as duas abas — funciona como a *timeline do dia*, para você montar a rotina misturando publicações do Filtro por Link e do Filtro Entre Contas.
 
 ### Tema claro/escuro
 
@@ -155,6 +188,7 @@ As pastas de slot abrem automaticamente em modo **Ícones Grandes** no Explorer 
 
 | Configuração | Padrão | Descrição |
 |---|---|---|
+| Pasta de Destino | — | Pasta base dos seus envios (comparação) e onde as pastas dos dias são criadas |
 | Incluir contador de dias | Ativado | Adiciona `Dia1`, `Dia2`... no nome da pasta |
 | Incluir inicial da pessoa | Ativado | Adiciona a inicial do responsável pelo envio |
 | Inicial da pessoa | `V` | Letra que identifica o responsável |
@@ -190,17 +224,16 @@ Quando uma repetida é detectada, aparece um **balão lado a lado** com a imagem
 
 ## Histórico de envios
 
-O painel **Histórico de Envios** na aba principal exibe todos os posts processados com:
+O painel **Histórico de Envios** é a *timeline do dia*, compartilhado entre as abas. Cada item mostra:
 
-- Thumbnail da primeira imagem
-- Nome da pasta de envio
-- **Salva em:** data e hora do processamento
-- Curtidas, comentários e **Postado em:** (data de publicação no Instagram)
-- Link original clicável (abre no navegador) com botão de copiar — ao copiar, aparece um mini balão **"Copiado!"**
-- Botão **×** para apagar um item específico do histórico
+- Thumbnail da primeira imagem, nome da pasta de envio
+- **Salva em:** data/hora do processamento · **Postado em:** data de publicação no Instagram · curtidas e comentários
+- Link clicável com botão de copiar (mini balão **"Copiado!"**) e botão **📁** para abrir a pasta
+- No **dia atual**: botões **↩ Retornar para a Fila** (devolve a publicação para a origem) e **×** (apaga o registro)
 
-Para apagar tudo, clique em **Resetar** (um diálogo de confirmação será exibido).  
-O arquivo de histórico fica em `data/history.json`.
+**Navegação por dia:** as setas **◀ ▶** ao lado do título viajam entre os dias anteriores (mostrando o nome da pasta do dia). Os novos envios entram **no fim** da lista. Dias passados são **somente leitura** (sem os botões de ação). O arquivo fica em `data/history.json`.
+
+Para apagar tudo, clique em **Resetar** (com confirmação).
 
 ---
 
@@ -218,8 +251,11 @@ O arquivo de histórico fica em `data/history.json`.
 │   │   ├── history.json       ← histórico de envios
 │   │   ├── waiting_queue.json ← metadados da Fila de Espera
 │   │   ├── waiting_queue/     ← imagens estacionadas na Fila de Espera
+│   │   ├── cross_lists.json   ← listas do Filtro Entre Contas
 │   │   └── browser_profile/   ← sessão persistente do Chrome (login Instagram)
 │   ├── config.py              ← leitura e escrita de configurações
+│   ├── crossaccount.py        ← listas nomeadas do Filtro Entre Contas
+│   ├── cta.py                 ← detecção do tipo de CTA por OCR (Tesseract)
 │   ├── dedup.py               ← detecção de duplicatas por hash perceptual
 │   ├── downloader.py          ← automação do SnapInsta.to + coleta de métricas do Instagram
 │   ├── gui.py                 ← interface gráfica (Tkinter)
@@ -243,6 +279,7 @@ O arquivo de histórico fica em `data/history.json`.
 | `playwright-stealth` | Contorna detecção de bot do Instagram |
 | `Pillow` | Abertura e processamento de imagens |
 | `imagehash` | Hash perceptual para comparação de imagens |
+| `pytesseract` | Ponte para o Tesseract OCR (detecção de CTA) — precisa do Tesseract instalado no sistema |
 | `requests` | Download das mídias via HTTP direto |
 
 ---
@@ -260,6 +297,14 @@ Após baixar as mídias, o app navega para a URL original do Instagram para capt
 A **data de publicação** é lida do elemento `<time>` da postagem (o `title`, que sempre traz o ano completo em pt-BR), identificado pelo permalink `/p/<shortcode>/` para não confundir com as datas dos comentários.
 
 **Detalhe crítico de implementação:** o Instagram renderiza os botões de "curtir" dos comentários *antes* da barra de ações no DOM. Por isso o seletor usa `querySelectorAll('svg[aria-label="Curtir"]')[length-1]` (o *último* SVG) para garantir que está lendo o like da barra de ações, não de um comentário. O SVG de comentar aparece apenas uma vez, então `querySelector` basta.
+
+### Detecção de CTA (cta.py)
+
+O tipo de CTA é lido por **OCR (Tesseract via `pytesseract`, `por+spa`)** nos últimos cards de cada publicação, seguido de classificação por palavras-chave. Roda **em segundo plano** (a lista abre na hora e os CTAs preenchem aos poucos), priorizando os itens **disponíveis**. A atualização é **reativa** — só o rótulo do item que mudou é reconfigurado, sem re-renderizar a lista (sem "piscar"). Se o Tesseract não estiver instalado, `cta.available()` retorna `False` e o app segue normal.
+
+### Filtro Entre Contas (crossaccount.py)
+
+Cada lista referencia as imagens **direto na pasta de origem** (não copia — uma conta pode ter centenas de publicações), guardando os hashes já calculados para o Recarregar. A lista na UI é **virtualizada**: só os cartões visíveis (+ uma margem) são criados de fato, então abrir uma lista de 600 itens é instantâneo.
 
 ### Compatibilidade script vs. executável (paths.py)
 

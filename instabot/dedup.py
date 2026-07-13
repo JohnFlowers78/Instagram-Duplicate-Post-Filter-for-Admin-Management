@@ -66,6 +66,17 @@ def get_all_hashes(folder: Path) -> list[imagehash.ImageHash]:
     return hashes
 
 
+def hashes_from_hex(hex_list) -> list[imagehash.ImageHash]:
+    """Reconverte hashes salvos como hex (ex.: itens do Filtro Entre Contas)."""
+    out = []
+    for h in hex_list or []:
+        try:
+            out.append(imagehash.hex_to_hash(h))
+        except Exception:
+            pass
+    return out
+
+
 def hash_new_media(media_paths: list[Path]) -> list[imagehash.ImageHash]:
     """Hashes de todas as imagens recem-baixadas (assume que ja estao em ordem)."""
     hashes = []

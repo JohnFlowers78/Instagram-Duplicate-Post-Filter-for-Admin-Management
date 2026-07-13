@@ -9,6 +9,7 @@ instabot/data/config.json
 instabot/data/history.json
 instabot/data/waiting_queue.json
 instabot/data/waiting_queue/
+instabot/data/cross_lists.json
 
 # Scripts de depuração (não fazem parte do produto)
 instabot/debug/

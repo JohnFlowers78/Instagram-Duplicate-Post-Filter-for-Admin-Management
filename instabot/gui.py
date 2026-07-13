@@ -1,4 +1,5 @@
 import json
+import os
 import re
 import shutil
 import tempfile
@@ -12,6 +13,8 @@ from tkinter import filedialog, ttk
 from PIL import Image, ImageDraw, ImageTk
 
 import config
+import crossaccount
+import cta
 import dedup
 import downloader
 import organizer
@@ -82,6 +85,8 @@ def _apply_palette(name: str) -> None:
 _apply_palette("light")  # padrao no import; __init__ reaplica conforme a config
 
 QUEUE_W = 320        # largura do painel da fila de espera quando aberto
+CROSS_ROW_H = 150    # altura fixa de cada cartao na lista virtualizada do Entre Contas
+CROSS_OVERSCAN = 3   # cartoes renderizados alem da area visivel (cada lado)
 
 FONT_H  = ("Segoe UI", 10, "bold")
 FONT_SH = ("Segoe UI", 9, "bold")
@@ -210,6 +215,7 @@ class App(tk.Tk):
 
         self._update_preview()
         self._refresh_db_folder_label()
+        self._refresh_src_folder_label()
         self._reload_history_panel()
 
     def _make_icons(self):
@@ -256,6 +262,9 @@ class App(tk.Tk):
         self._tab_active = None
         self._queue_open = False
         self._queue_w = QUEUE_W
+        self._hist_inners = []   # inners de historico (compartilhado entre abas)
+        self._hist_headers = []  # cabecalhos (setas + rotulo do dia) por painel
+        self._hist_page = 0      # 0 = dia mais recente ("Lista de Publicações do Dia")
 
         # Corpo: coluna esquerda (app) + painel direito retratil (fila de espera)
         self._body = tk.Frame(self, bg=BG)
@@ -282,7 +291,9 @@ class App(tk.Tk):
             except Exception:
                 pass
 
-        for key, label in [("main", "  Filtro  "), ("settings", "  Configurações  ")]:
+        for key, label in [("link", "  Filtro por Link  "),
+                           ("cross", "  Filtro Entre Contas  "),
+                           ("settings", "  Configurações  ")]:
             col = tk.Frame(tab_bar, bg=PANEL)
             col.pack(side="left")
             btn = tk.Button(
@@ -314,14 +325,15 @@ class App(tk.Tk):
 
         # Paginas de conteudo
         for key, build_fn in [
-            ("main",     self._build_main_tab),
+            ("link",     self._build_link_tab),
+            ("cross",    self._build_cross_tab),
             ("settings", self._build_settings_tab),
         ]:
             page = tk.Frame(self._left, bg=BG)
             self._tab_pages[key] = page
             build_fn(page)
 
-        self._switch_tab("main")
+        self._switch_tab("link")
 
     def _switch_tab(self, name: str):
         for k in self._tab_pages:
@@ -332,6 +344,9 @@ class App(tk.Tk):
         self._tab_btns[name].configure(fg=ACCENT, font=FONT_SH)
         self._tab_inds[name].configure(bg=ACCENT)
         self._tab_active = name
+        # O painel direito e contextual: fila de links x listas entre contas
+        if hasattr(self, "_queue_panel"):
+            self._refresh_queue_panel_context()
 
     # ------------------------------------------------------------------
     # Chave seletora de modo (usar agora / fila de espera)
@@ -388,6 +403,7 @@ class App(tk.Tk):
         self._set_mode(saved_mode)
         self._update_preview()
         self._refresh_db_folder_label()
+        self._refresh_src_folder_label()
         self._reload_history_panel()
         self._switch_tab("settings")  # mantem o usuario na aba de configuracoes
         if queue_was_open:
@@ -439,7 +455,7 @@ class App(tk.Tk):
             self._queue_panel.pack(side="right", fill="y")
             self._btn_queue_toggle.config(text="❮")
             self._queue_open = True
-            self._reload_queue_panel()
+            self._refresh_queue_panel_context()
             new_w = self.winfo_width() + self._queue_w
         self.geometry(f"{new_w}x{self.winfo_height()}")
 
@@ -471,6 +487,350 @@ class App(tk.Tk):
             except tk.TclError:
                 pass
 
+    def _refresh_queue_panel_context(self):
+        """Painel direito e contextual: fila de links (aba Filtro por Link) ou
+        listas entre contas (aba Filtro Entre Contas)."""
+        if not hasattr(self, "_queue_inner"):
+            return
+        if getattr(self, "_tab_active", "link") == "cross":
+            self._q_title.config(text="LISTAS ENTRE CONTAS")
+            if not self._q_controls.winfo_ismapped():
+                self._q_controls.pack(fill="x", after=self._q_hdr)
+            self._populate_cross_combo()
+            self._render_cross_list(reset_scroll=True)
+            self._start_cross_ocr(crossaccount.get_active())
+        else:
+            self._q_title.config(text="FILA DE ESPERA")
+            self._q_controls.pack_forget()
+            self._reload_queue_panel()
+
+    # ------------------------------------------------------------------
+    # Painel: listas do Filtro Entre Contas
+    # ------------------------------------------------------------------
+
+    def _populate_cross_combo(self):
+        summary = crossaccount.lists_summary()
+        self._q_list_ids = [lid for (lid, _n, _c) in summary]
+        values = [f"{n} ({c})" for (_l, n, c) in summary]
+        self._q_list_combo.config(values=values)
+        active = crossaccount.get_active()
+        if active in self._q_list_ids:
+            self._q_list_combo.current(self._q_list_ids.index(active))
+        elif values:
+            self._q_list_combo.current(0)
+            crossaccount.set_active(self._q_list_ids[0])
+        else:
+            self._q_list_var.set("")
+
+    def _on_cross_list_selected(self, event=None):
+        idx = self._q_list_combo.current()
+        if 0 <= idx < len(self._q_list_ids):
+            crossaccount.set_active(self._q_list_ids[idx])
+            self._render_cross_list(reset_scroll=True)
+            self._start_cross_ocr(self._q_list_ids[idx])
+
+    def _render_cross_list(self, reset_scroll: bool = False):
+        # Interrompe qualquer animacao da fila de links e limpa o inner
+        self._q_drag = None
+        self._q_state = []
+        for w in self._queue_inner.winfo_children():
+            w.destroy()
+        self._cross_rows = {}   # {index: cartao} atualmente renderizados
+        active = crossaccount.get_active()
+        lst = crossaccount.get_list(active) if active else None
+        self._cross_list_id = active
+        self._cross_items = list(lst.get("items")) if lst and lst.get("items") else []
+        if not self._cross_items:
+            self._queue_inner.configure(height=80)
+            tk.Label(
+                self._queue_inner,
+                text="Nenhuma lista.\nAnalise uma conta na aba\n'Filtro Entre Contas'.",
+                fg=TXT_M, font=FONT_B, bg=PANEL, wraplength=240, justify="center",
+            ).place(x=12, y=16)
+            return
+        # Virtualizacao: o inner tem a altura total; so os cartoes visiveis (+ margem)
+        # sao criados de verdade — abrir a lista fica leve mesmo com centenas de itens.
+        self._queue_inner.configure(height=len(self._cross_items) * CROSS_ROW_H + 4)
+        if reset_scroll:
+            self._queue_canvas.yview_moveto(0)
+        self._cross_virtual_update()
+
+    def _cross_virtual_update(self):
+        """Cria apenas os cartoes na area visivel (+ overscan) e destroi os que sairam."""
+        if not getattr(self, "_cross_items", None) or not hasattr(self, "_cross_rows"):
+            return
+        canvas = self._queue_canvas
+        try:
+            top = max(0.0, canvas.canvasy(0))
+        except Exception:
+            top = 0.0
+        vh = canvas.winfo_height() or 1
+        n = len(self._cross_items)
+        i0 = max(0, int(top // CROSS_ROW_H) - CROSS_OVERSCAN)
+        i1 = min(n - 1, int((top + vh) // CROSS_ROW_H) + CROSS_OVERSCAN)
+        want = set(range(i0, i1 + 1))
+        have = set(self._cross_rows.keys())
+        for i in have - want:
+            try:
+                self._cross_rows[i].destroy()
+            except Exception:
+                pass
+            del self._cross_rows[i]
+        for i in want - have:
+            row = self._build_cross_row(self._cross_list_id, self._cross_items[i])
+            row.place(x=4, y=i * CROSS_ROW_H, relwidth=1, width=-8)
+            self._cross_rows[i] = row
+
+    # --- Deteccao de CTA em segundo plano (OCR) ---
+
+    def _start_cross_ocr(self, list_id: str):
+        """Dispara o OCR dos CTAs da lista em segundo plano: itens disponiveis
+        primeiro, usados/repetidos por ultimo, e so os que ainda nao tem CTA."""
+        if not list_id or not cta.available():
+            return
+        self._cross_ocr_gen = getattr(self, "_cross_ocr_gen", 0) + 1
+        gen = self._cross_ocr_gen
+        threading.Thread(
+            target=self._cross_ocr_worker, args=(list_id, gen), daemon=True
+        ).start()
+
+    def _cross_ocr_worker(self, list_id: str, gen: int):
+        lst = crossaccount.get_list(list_id)
+        if not lst:
+            return
+
+        def prio(it):
+            if it.get("used"):
+                return 2
+            if it.get("duplicate"):
+                return 1
+            return 0  # disponiveis primeiro
+
+        pend = sorted(
+            [it for it in lst.get("items", []) if not it.get("cta")], key=prio
+        )
+        for it in pend:
+            if gen != getattr(self, "_cross_ocr_gen", gen):
+                return  # cancelado (troca de lista / novo import / fechou)
+            try:
+                result = cta.detect_cta(crossaccount.item_images(it))
+            except Exception:
+                result = "não detectada"
+            crossaccount.set_item_field(list_id, it["id"], "cta", result)
+            self.after(0, lambda iid=it["id"], c=result: self._apply_cta(iid, c))
+
+    def _apply_cta(self, item_id: str, cta_text: str):
+        """Atualiza SO o item que mudou (reativo): mexe no dado em memoria e, se o
+        cartao estiver renderizado, so reconfigura o rotulo da CTA — sem re-render,
+        sem piscar."""
+        items = getattr(self, "_cross_items", [])
+        idx = None
+        for i, it in enumerate(items):
+            if it.get("id") == item_id:
+                it["cta"] = cta_text
+                idx = i
+                break
+        if idx is None:
+            return
+        row = getattr(self, "_cross_rows", {}).get(idx)
+        lbl = getattr(row, "_cta_label", None) if row is not None else None
+        if lbl is not None:
+            good = bool(cta_text) and cta_text != "não detectada"
+            try:
+                lbl.config(text=f"CTA: {cta_text}", fg=(ACCENT if good else TXT_M))
+            except Exception:
+                pass
+
+    def _build_cross_row(self, list_id: str, item: dict):
+        gray = bool(item.get("used")) or bool(item.get("duplicate"))
+        row_outer = tk.Frame(self._queue_inner, bg=BORDER, padx=1, pady=1)
+        row = tk.Frame(row_outer, bg=PANEL, padx=8, pady=8)
+        row.pack(fill="both", expand=True)
+
+        top = tk.Frame(row, bg=PANEL)
+        top.pack(fill="x")
+        thumb_frame = tk.Frame(top, bg=INNER, width=THUMB_SIZE[0] + 4, height=THUMB_SIZE[1] + 4)
+        thumb_frame.pack(side="left", padx=(0, 8))
+        thumb_frame.pack_propagate(False)
+        thumb_path = item.get("thumbnail", "")
+        loaded = False
+        if thumb_path and Path(thumb_path).exists():
+            try:
+                img = Image.open(thumb_path)
+                img.thumbnail(THUMB_SIZE, Image.LANCZOS)
+                if gray:
+                    img = img.convert("L").convert("RGB")  # cinza = indisponivel
+                photo = ImageTk.PhotoImage(img)
+                row_outer._photo = photo   # ref presa ao cartao (liberada ao destrui-lo)
+                tk.Label(thumb_frame, image=photo, bg=INNER).pack(expand=True)
+                loaded = True
+            except Exception:
+                pass
+        if not loaded:
+            tk.Label(thumb_frame, text="[sem\nimagem]", fg=TXT_M, font=FONT_M,
+                     justify="center", bg=INNER).pack(expand=True)
+
+        info = tk.Frame(top, bg=PANEL)
+        info.pack(side="left", fill="x", expand=True)
+        tk.Label(info, text=item.get("folder") or "publicação", anchor="w",
+                 font=FONT_SH, bg=PANEL, fg=(TXT_M if gray else TXT_H)).pack(fill="x")
+        if item.get("used"):
+            tk.Label(info, text="⚠ Já utilizada (no histórico)", anchor="w",
+                     font=FONT_S, bg=PANEL, fg=BDF).pack(fill="x")
+        elif item.get("duplicate"):
+            loc = item.get("dup_location", "")
+            txt = f"Repetida — em {loc}" if loc else "Repetida (já no destino)"
+            tk.Label(info, text=txt, anchor="w", font=FONT_S, bg=PANEL, fg=BDF).pack(fill="x")
+
+        # Linha de CTA (preenchida em segundo plano pelo OCR; atualizada em tempo real)
+        cta_txt = item.get("cta")
+        if cta_txt:
+            cta_lbl_text, cta_good = f"CTA: {cta_txt}", (cta_txt != "não detectada")
+        elif cta.available():
+            cta_lbl_text, cta_good = "CTA: analisando…", False
+        else:
+            cta_lbl_text, cta_good = "CTA: OCR indisponível", False
+        cta_label = tk.Label(info, text=cta_lbl_text, anchor="w", font=FONT_S,
+                             bg=PANEL, fg=(ACCENT if cta_good else TXT_M))
+        cta_label.pack(fill="x")
+        row_outer._cta_label = cta_label
+
+        meta = item.get("meta", {})
+        meta_row = tk.Frame(info, bg=PANEL)
+        meta_row.pack(fill="x", pady=(2, 0))
+        for ico, key in [(self._ico_eye, "views"), (self._ico_heart, "likes"),
+                         (self._ico_bubble, "comments")]:
+            tk.Label(meta_row, image=ico, bg=PANEL).pack(side="left", padx=(0, 2))
+            tk.Label(meta_row, text=meta.get(key, "N/D"), font=FONT_M, bg=PANEL,
+                     fg=TXT_B, anchor="w").pack(side="left", padx=(0, 8))
+
+        btns = tk.Frame(row, bg=PANEL)
+        btns.pack(fill="x", pady=(8, 0))
+        self._btn(btns, "Remover",
+                  lambda: self._remove_cross_item(list_id, item["id"]), "danger_sm").pack(side="right")
+        self._btn(btns, "📁", lambda p=item.get("src_path", ""): self._open_folder(p),
+                  "secondary_sm").pack(side="right", padx=(0, 4))
+        if not gray:
+            self._btn(btns, "Utilizar de Próxima",
+                      lambda: self._use_cross_item(list_id, item["id"]), "green_sm").pack(side="left")
+        return row_outer
+
+    def _use_cross_item(self, list_id: str, item_id: str):
+        db = self.cfg.get("db_folder")
+        if not db or not Path(db).is_dir():
+            self._show_toast("Selecione a Pasta de Destino primeiro.", 4000, ERR_BG, ERR_FG)
+            return
+        item = crossaccount.find_item(list_id, item_id)
+        if item is None:
+            return
+        images = crossaccount.item_images(item)
+        if not images:
+            self._show_toast("Imagens não encontradas na pasta de origem.", 4000, ERR_BG, ERR_FG)
+            return
+        db_folder = Path(db)
+        initial     = self.cfg.get("person_initial", "V")
+        slots       = self.cfg.get("slots_per_day", 6)
+        inc_counter = self.cfg.get("include_day_counter", True)
+        inc_initial = self.cfg.get("include_person_initial", True)
+        day_folder = organizer.ensure_day_folder(db_folder, initial, slots, inc_counter, inc_initial)
+        slot = organizer.find_next_empty_slot(day_folder, slots)
+        if slot is None:
+            self._show_toast(f"Não há pasta livre hoje em '{day_folder.name}'.", 4000, ERR_BG, ERR_FG)
+            return
+        organizer.save_media_to_slot(slot, images)
+        # A legenda viaja junto: grava no Legenda.txt da pasta de destino
+        caption = (item.get("caption") or "").strip()
+        if caption:
+            try:
+                (slot / "Legenda.txt").write_text(caption, encoding="utf-8")
+            except Exception:
+                pass
+        self._record_history(
+            item.get("url", ""), slot, item.get("meta", {}),
+            origin={"origin": "cross", "list_id": list_id, "item_id": item_id},
+        )
+        crossaccount.set_item_field(list_id, item_id, "used", True)
+        self._render_cross_list()
+        slot_label = str(slot.relative_to(db_folder))
+        self._show_toast(f"Enviado para {slot_label}", 3000, OK_BG, OK_FG)
+
+    def _remove_cross_item(self, list_id: str, item_id: str):
+        crossaccount.remove_item(list_id, item_id)
+        self._populate_cross_combo()
+        self._render_cross_list()
+        self._show_toast("Removido da lista.", 3000, ERR_BG, ERR_FG)
+
+    def _dup_location_label(self, match, db_folder) -> str:
+        """Rotulo 'Dia.../N' de onde a publicacao ja existe no destino."""
+        if not match:
+            return ""
+        folder, _dist = match
+        try:
+            return str(Path(folder).relative_to(db_folder))
+        except ValueError:
+            return Path(folder).name
+
+    def _open_folder(self, path: str):
+        try:
+            p = Path(path)
+            if p.is_file():
+                p = p.parent
+            if p.is_dir():
+                os.startfile(str(p))
+            else:
+                self._show_toast("Pasta não encontrada.", 3000, ERR_BG, ERR_FG)
+        except Exception:
+            self._show_toast("Não foi possível abrir a pasta.", 3000, ERR_BG, ERR_FG)
+
+    def _refresh_cross_list(self):
+        active = crossaccount.get_active()
+        if not active:
+            return
+        db = self.cfg.get("db_folder")
+        if not db or not Path(db).is_dir():
+            self._show_toast("Selecione a Pasta de Destino primeiro.", 4000, ERR_BG, ERR_FG)
+            return
+        if getattr(self, "_cross_busy", False):
+            return
+        self._cross_busy = True
+        self._cross_clear_log()          # limpa na thread principal (Tk nao e thread-safe)
+        self.cross_progress["value"] = 0
+        threading.Thread(target=self._run_cross_refresh, args=(active, Path(db)), daemon=True).start()
+
+    def _run_cross_refresh(self, list_id: str, db_folder: Path):
+        try:
+            data = crossaccount.load()
+            lst = crossaccount.get_list(list_id, data)
+            if lst is None:
+                return
+            name = lst.get("name", "")
+            avail = [it for it in lst.get("items", []) if not it.get("used")]
+            total = len(avail)
+            self._cross_log(f"Recarregando a lista '{name}' — reanalisando {total} disponível(is)...")
+            threshold = self.cfg.get("hash_threshold", 5)
+            dest_index = dedup.build_post_index(db_folder)
+            changed = 0
+            for i, it in enumerate(avail, start=1):
+                self._cross_status(f"Recarregando {i} de {total}...", (i / total * 100) if total else 100)
+                if i == 1 or i == total or i % 10 == 0:
+                    self._cross_log(f"  reanalisando {i} de {total}")
+                hashes = dedup.hashes_from_hex(it.get("hashes", []))
+                match = dedup.find_duplicate_post(hashes, dest_index, threshold)
+                is_dup = match is not None
+                new_loc = self._dup_location_label(match, db_folder) if is_dup else ""
+                if bool(it.get("duplicate")) != is_dup or it.get("dup_location", "") != new_loc:
+                    it["duplicate"] = is_dup
+                    it["dup_location"] = new_loc
+                    changed += 1
+            crossaccount.save(data)
+            self._cross_status("Recarregado!", 100)
+            self._cross_log(f"Concluído — {changed} item(ns) atualizado(s).")
+            self.after(0, self._render_cross_list)
+        except Exception as exc:
+            self._cross_log(f"ERRO: {exc}")
+        finally:
+            self._cross_busy = False
+
     # ------------------------------------------------------------------
     # Toast flutuante (mini balao temporario)
     # ------------------------------------------------------------------
@@ -497,32 +857,19 @@ class App(tk.Tk):
         toast.after(ms, toast.destroy)
 
     # ------------------------------------------------------------------
-    # Aba principal
+    # Aba: Filtro por Link
     # ------------------------------------------------------------------
 
-    def _build_main_tab(self, page):
+    def _build_link_tab(self, page):
         PAD = {"padx": 12, "pady": (6, 0)}
 
-        # Card: pasta de analise
-        outer, card = self._make_card(page, "Pasta de Análise")
-        outer.pack(fill="x", **PAD)
-        row = tk.Frame(card, bg=PANEL)
-        row.pack(fill="x")
-        self.lbl_db_folder = tk.Label(
-            row, text="(nenhuma pasta selecionada)",
-            font=FONT_B, bg=PANEL, fg=TXT_M, anchor="w",
-        )
-        self.lbl_db_folder.pack(side="left", fill="x", expand=True)
-        self._btn(row, "Selecionar...", self.choose_db_folder, "secondary").pack(
-            side="right", padx=(10, 0)
-        )
-
-        # Card: nova publicacao
+        # Card: nova publicacao (agora e a primeira area da tela)
         outer2, card2 = self._make_card(page, "Nova Publicação do Instagram")
         outer2.pack(fill="x", **PAD)
 
         # Chave seletora: usar agora x adicionar a fila de espera
-        self._var_mode = "use"
+        # Padrao: 'Adicionar à Fila de Espera' (desde a abertura do app)
+        self._var_mode = "queue"
         self._mode_btns = {}
         mode_row = tk.Frame(card2, bg=BORDER, padx=1, pady=1)
         mode_row.pack(fill="x", pady=(0, 8))
@@ -537,7 +884,7 @@ class App(tk.Tk):
             )
             b.pack(side="left", fill="x", expand=True)
             self._mode_btns[key] = b
-        self._set_mode("use")
+        self._set_mode("queue")
 
         link_row = tk.Frame(card2, bg=PANEL)
         link_row.pack(fill="x")
@@ -554,7 +901,8 @@ class App(tk.Tk):
 
         self.btn_paste_clear = self._btn(link_row, "Colar", self._paste_or_clear, "secondary")
         self.btn_paste_clear.pack(side="left", padx=(6, 4))
-        self.btn_start = self._btn(link_row, "Iniciar", self.start_pipeline, "primary")
+        _start_txt = "Adicionar à Fila" if self._var_mode == "queue" else "Iniciar"
+        self.btn_start = self._btn(link_row, _start_txt, self.start_pipeline, "primary")
         self.btn_start.pack(side="left")
 
         # Card: progresso
@@ -609,51 +957,125 @@ class App(tk.Tk):
             w.bind("<Button-1>", self._divider_drag_start)
             w.bind("<B1-Motion>", self._divider_drag)
 
-        # --- Historico (preenche o espaco restante) ---
+        # --- Historico compartilhado (timeline do dia) ---
         hist_holder = tk.Frame(split, bg=BG)
         hist_holder.pack(fill="both", expand=True, side="top")
+        self._build_history_panel(hist_holder)
 
-        hist_hdr = tk.Frame(hist_holder, bg=BG)
-        hist_hdr.pack(fill="x", padx=12, pady=(0, 2))
+    def _build_history_panel(self, parent):
+        """Painel de Historico de Envios (compartilhado entre as abas).
+        Cada aba tem seu proprio canvas; todos recarregam do mesmo history.json."""
+        # Cabecalho:  ◀  HISTÓRICO DE ENVIOS  ▶ ............... Resetar
+        hist_hdr = tk.Frame(parent, bg=BG)
+        hist_hdr.pack(fill="x", padx=12, pady=(0, 0))
+        left = tk.Label(hist_hdr, text="◀", font=("Segoe UI", 11, "bold"),
+                        bg=BG, fg=TXT_M, cursor="hand2")
+        left.pack(side="left", padx=(0, 5))
+        left.bind("<Button-1>", lambda e: self._hist_go(1))     # dia mais antigo
         tk.Label(
             hist_hdr, text="HISTÓRICO DE ENVIOS",
             font=FONT_LBL, bg=BG, fg=TXT_M, anchor="w",
         ).pack(side="left")
+        right = tk.Label(hist_hdr, text="▶", font=("Segoe UI", 11, "bold"),
+                         bg=BG, fg=TXT_M, cursor="hand2")
+        right.pack(side="left", padx=(5, 0))
+        right.bind("<Button-1>", lambda e: self._hist_go(-1))   # dia mais novo
         self._btn(hist_hdr, "Resetar", self._reset_history, "danger_sm").pack(side="right")
 
-        hist_outer = tk.Frame(hist_holder, bg=BORDER, padx=1, pady=1)
+        # Rotulo do dia que estamos vendo (centralizado)
+        nav = tk.Frame(parent, bg=BG)
+        nav.pack(fill="x", padx=12, pady=(1, 3))
+        day_lbl = tk.Label(nav, text="Lista de Publicações do Dia", font=FONT_S,
+                           bg=BG, fg=TXT_B, anchor="center")
+        day_lbl.pack(fill="x", expand=True)
+        self._hist_headers.append({"day": day_lbl, "left": left, "right": right})
+
+        hist_outer = tk.Frame(parent, bg=BORDER, padx=1, pady=1)
         hist_outer.pack(fill="both", expand=True, padx=12, pady=(0, 10))
         hist_card = tk.Frame(hist_outer, bg=PANEL)
         hist_card.pack(fill="both", expand=True)
 
-        self._hist_canvas = tk.Canvas(
-            hist_card, borderwidth=0, highlightthickness=0, height=120, bg=PANEL
-        )
-        sb_hist = ttk.Scrollbar(hist_card, orient="vertical", command=self._hist_canvas.yview)
-        self._hist_canvas.configure(yscrollcommand=sb_hist.set)
+        canvas = tk.Canvas(hist_card, borderwidth=0, highlightthickness=0, height=120, bg=PANEL)
+        sb = ttk.Scrollbar(hist_card, orient="vertical", command=canvas.yview)
+        canvas.configure(yscrollcommand=sb.set)
+        inner = tk.Frame(canvas, bg=PANEL)
+        inner_id = canvas.create_window((0, 0), window=inner, anchor="nw")
+        canvas.pack(side="left", fill="both", expand=True)
+        sb.pack(side="right", fill="y")
+        inner.bind("<Configure>", lambda e, c=canvas: c.configure(scrollregion=c.bbox("all")))
+        canvas.bind("<Configure>", lambda e, c=canvas, i=inner_id: c.itemconfigure(i, width=e.width))
+        canvas.bind("<Enter>", lambda e, c=canvas: c.bind_all(
+            "<MouseWheel>", lambda ev, cc=c: cc.yview_scroll(int(-1 * (ev.delta / 120)), "units")))
+        canvas.bind("<Leave>", lambda e, c=canvas: c.unbind_all("<MouseWheel>"))
+        self._hist_inners.append(inner)
 
-        self._hist_inner = tk.Frame(self._hist_canvas, bg=PANEL)
-        self._hist_inner_id = self._hist_canvas.create_window(
-            (0, 0), window=self._hist_inner, anchor="nw"
-        )
-        self._hist_canvas.pack(side="left", fill="both", expand=True)
-        sb_hist.pack(side="right", fill="y")
+    # ------------------------------------------------------------------
+    # Aba: Filtro Entre Contas
+    # ------------------------------------------------------------------
 
-        self._hist_inner.bind(
-            "<Configure>",
-            lambda e: self._hist_canvas.configure(scrollregion=self._hist_canvas.bbox("all")),
+    def _build_cross_tab(self, page):
+        PAD = {"padx": 12, "pady": (6, 0)}
+
+        # Card: pasta da conta de origem + nome da lista
+        outer, card = self._make_card(page, "Pasta de Publicações da Conta de Origem")
+        outer.pack(fill="x", **PAD)
+        row = tk.Frame(card, bg=PANEL)
+        row.pack(fill="x")
+        self.lbl_src_folder = tk.Label(
+            row, text="(nenhuma pasta selecionada)",
+            font=FONT_B, bg=PANEL, fg=TXT_M, anchor="w",
         )
-        self._hist_canvas.bind(
-            "<Configure>",
-            lambda e: self._hist_canvas.itemconfigure(self._hist_inner_id, width=e.width),
+        self.lbl_src_folder.pack(side="left", fill="x", expand=True)
+        self._btn(row, "Selecionar...", self.choose_src_folder, "secondary").pack(
+            side="right", padx=(10, 0)
         )
-        self._hist_canvas.bind(
-            "<Enter>",
-            lambda e: self._hist_canvas.bind_all("<MouseWheel>", self._on_hist_scroll),
+
+        name_row = tk.Frame(card, bg=PANEL)
+        name_row.pack(fill="x", pady=(10, 0))
+        tk.Label(name_row, text="Nome da lista:", font=FONT_B, bg=PANEL, fg=TXT_B).pack(side="left")
+        name_wrap = tk.Frame(name_row, bg=BORDER, padx=1, pady=1)
+        name_wrap.pack(side="left", fill="x", expand=True, padx=(8, 8))
+        self.entry_list_name = tk.Entry(
+            name_wrap, font=FONT_B, bg=INNER, fg=TXT_H, insertbackground=TXT_H,
+            relief="flat", bd=0,
         )
-        self._hist_canvas.bind(
-            "<Leave>", lambda e: self._hist_canvas.unbind_all("<MouseWheel>")
+        self.entry_list_name.pack(fill="both", expand=True, ipady=4)
+        self.btn_cross_start = self._btn(name_row, "Analisar Conta", self.start_cross_import, "primary")
+        self.btn_cross_start.pack(side="right")
+
+        # Card: progresso
+        outer3, card3 = self._make_card(page, "Progresso")
+        outer3.pack(fill="x", **PAD)
+        self.cross_progress = ttk.Progressbar(
+            card3, orient="horizontal", mode="determinate",
+            maximum=100, style="Accent.Horizontal.TProgressbar",
         )
+        self.cross_progress.pack(fill="x", pady=(0, 5))
+        self.cross_lbl_status = tk.Label(
+            card3, text="Aguardando...", font=FONT_S, bg=PANEL, fg=TXT_M, anchor="w",
+        )
+        self.cross_lbl_status.pack(fill="x")
+
+        # Card: LOGs (altura fixa)
+        logs_holder = tk.Frame(page, bg=BG, height=140)
+        logs_holder.pack(fill="x", pady=(6, 0))
+        logs_holder.pack_propagate(False)
+        outer4, card4 = self._make_card(logs_holder, "LOGs")
+        outer4.pack(fill="both", expand=True, padx=12)
+        sb_log = ttk.Scrollbar(card4, orient="vertical")
+        self.cross_txt_log = tk.Text(
+            card4, height=5, state="disabled", wrap="word", yscrollcommand=sb_log.set,
+            font=("Consolas", 8), bg=INNER, fg=TXT_B, insertbackground=TXT_B,
+            relief="flat", bd=0, highlightthickness=0, spacing1=1, spacing3=1,
+        )
+        sb_log.config(command=self.cross_txt_log.yview)
+        self.cross_txt_log.pack(side="left", fill="both", expand=True)
+        sb_log.pack(side="right", fill="y")
+
+        # Historico compartilhado
+        hist_holder = tk.Frame(page, bg=BG)
+        hist_holder.pack(fill="both", expand=True, side="top")
+        self._build_history_panel(hist_holder)
 
     # ------------------------------------------------------------------
     # Aba configuracoes
@@ -661,6 +1083,25 @@ class App(tk.Tk):
 
     def _build_settings_tab(self, page):
         PAD = {"padx": 12, "pady": (10, 0)}
+
+        # Card: pasta de destino (onde as pastas dos dias sao criadas / base de comparacao)
+        outer0, card0 = self._make_card(page, "Pasta de Destino")
+        outer0.pack(fill="x", **PAD)
+        tk.Label(
+            card0,
+            text="Pasta onde ficam seus envios (base de comparação) e onde as pastas dos próximos dias são criadas.",
+            font=FONT_S, bg=PANEL, fg=TXT_M, anchor="w", wraplength=520, justify="left",
+        ).pack(fill="x", pady=(0, 8))
+        row0 = tk.Frame(card0, bg=PANEL)
+        row0.pack(fill="x")
+        self.lbl_db_folder = tk.Label(
+            row0, text="(nenhuma pasta selecionada)",
+            font=FONT_B, bg=PANEL, fg=TXT_M, anchor="w",
+        )
+        self.lbl_db_folder.pack(side="left", fill="x", expand=True)
+        self._btn(row0, "Selecionar...", self.choose_db_folder, "secondary").pack(
+            side="right", padx=(10, 0)
+        )
 
         # Card: nomenclatura
         outer, card = self._make_card(page, "Nomenclatura das Pastas")
@@ -924,13 +1365,133 @@ class App(tk.Tk):
 
     def choose_db_folder(self):
         folder = filedialog.askdirectory(
-            title="Selecione a pasta onde estao os envios anteriores"
+            title="Selecione a pasta de destino (seus envios / base de comparacao)"
         )
         if folder:
             self.cfg["db_folder"] = folder
             config.save_config(self.cfg)
             self._refresh_db_folder_label()
             self._update_preview()
+
+    def _refresh_src_folder_label(self):
+        folder = getattr(self, "_src_folder", "") or ""
+        if hasattr(self, "lbl_src_folder"):
+            self.lbl_src_folder.config(
+                text=folder if folder else "(nenhuma pasta selecionada)",
+                fg=TXT_B if folder else TXT_M,
+            )
+
+    def choose_src_folder(self):
+        folder = filedialog.askdirectory(
+            title="Selecione a pasta da conta de origem (com as publicacoes)"
+        )
+        if folder:
+            self._src_folder = folder
+            self._refresh_src_folder_label()
+
+    def start_cross_import(self):
+        src = getattr(self, "_src_folder", "")
+        if not src or not Path(src).is_dir():
+            self._show_result_popup(False, "Selecione a pasta da conta de origem antes de analisar.")
+            return
+        name = self.entry_list_name.get().strip()
+        if not name:
+            self._show_result_popup(False, "Dê um nome para a lista antes de analisar.")
+            return
+        db_folder = self.cfg.get("db_folder")
+        if not db_folder or not Path(db_folder).is_dir():
+            self._show_result_popup(False, "Selecione a Pasta de Destino (Configurações) antes de analisar.")
+            return
+        self.btn_cross_start.config(state="disabled")
+        self.cross_progress["value"] = 0
+        self.cross_lbl_status.config(text="Preparando análise...")
+        self._cross_clear_log()
+        threading.Thread(
+            target=self._run_cross_import, args=(Path(src), name, Path(db_folder)), daemon=True
+        ).start()
+
+    def _run_cross_import(self, src_folder: Path, name: str, db_folder: Path):
+        try:
+            self._cross_log(f"Analisando conta de origem: {src_folder.name}")
+            pubs = crossaccount.find_publication_folders(src_folder)
+            total = len(pubs)
+            if total == 0:
+                self._cross_done(False, "Nenhuma publicação encontrada na pasta de origem.")
+                return
+            self._cross_log(f"{total} publicação(ões) encontrada(s). Comparando com o destino...")
+            dest_index = dedup.build_post_index(db_folder)
+            threshold = self.cfg.get("hash_threshold", 5)
+
+            items = []
+            dup_count = 0
+            for i, folder in enumerate(pubs, start=1):
+                self._cross_status(f"Analisando a pasta {i} de {total}...", i / total * 100)
+                if i == 1 or i == total or i % 10 == 0:
+                    self._cross_log(f"  analisando a pasta {i} de {total}")
+                images = crossaccount._sorted_images(folder)
+                hashes = dedup.hash_new_media(images)
+                match = dedup.find_duplicate_post(hashes, dest_index, threshold)
+                is_dup = match is not None
+                dup_location = self._dup_location_label(match, db_folder) if is_dup else ""
+                if is_dup:
+                    dup_count += 1
+                try:
+                    folder_label = str(folder.relative_to(src_folder))
+                except ValueError:
+                    folder_label = folder.name
+                items.append(crossaccount.new_item(
+                    folder, folder_label, [str(h) for h in hashes],
+                    meta={}, duplicate=is_dup, dup_location=dup_location,
+                ))
+
+            list_id = crossaccount.create_list_with_items(name, items)
+            self._cross_status("Concluído!", 100)
+            self._cross_log(
+                f"Lista '{name}' criada: {total} itens "
+                f"({dup_count} repetidas em cinza, {total - dup_count} disponíveis)."
+            )
+            self.after(0, lambda lid=list_id: self._on_cross_imported(lid))
+            self._cross_done(True, f"Lista '{name}' criada com {total} publicações.")
+        except Exception as exc:
+            self._cross_log(f"ERRO: {exc}")
+            self._cross_done(False, str(exc))
+
+    # --- helpers de UI do import entre contas (thread-safe) ---
+
+    def _cross_log(self, msg: str):
+        self.after(0, lambda: self._cross_log_sync(msg))
+
+    def _cross_log_sync(self, msg: str):
+        self.cross_txt_log.config(state="normal")
+        self.cross_txt_log.insert("end", msg + "\n")
+        self.cross_txt_log.see("end")
+        self.cross_txt_log.config(state="disabled")
+
+    def _cross_clear_log(self):
+        self.cross_txt_log.config(state="normal")
+        self.cross_txt_log.delete("1.0", "end")
+        self.cross_txt_log.config(state="disabled")
+
+    def _cross_status(self, text: str, value: float):
+        self.after(0, lambda: (
+            self.cross_progress.configure(value=value),
+            self.cross_lbl_status.config(text=text),
+        ))
+
+    def _cross_done(self, success: bool, msg: str):
+        def finish():
+            self.btn_cross_start.config(state="normal")
+            if not success:
+                self.cross_progress["value"] = 0
+                self.cross_lbl_status.config(text="Erro — veja o LOG")
+            self._show_result_popup(success, msg)
+        self.after(0, finish)
+
+    def _on_cross_imported(self, list_id: str):
+        crossaccount.set_active(list_id)
+        if not self._queue_open:
+            self._toggle_queue_panel()
+        self._refresh_queue_panel_context()
 
     # ------------------------------------------------------------------
     # Botao Colar / Limpar
@@ -1099,23 +1660,85 @@ class App(tk.Tk):
     # Painel de historico
     # ------------------------------------------------------------------
 
-    def _on_hist_scroll(self, event):
-        self._hist_canvas.yview_scroll(int(-1 * (event.delta / 120)), "units")
+    def _hist_day_key(self, entry: dict) -> str:
+        """Chave do dia de um envio: o nome da pasta do dia (Dia.../), ou a data."""
+        folder = (entry.get("folder", "") or "").replace("\\", "/")
+        if "/" in folder:
+            return folder.split("/")[0]
+        if folder:
+            return folder
+        sd = entry.get("save_datetime", "")
+        return sd.split(" ")[0] if sd else "?"
+
+    def _hist_day_groups(self, entries: list) -> list:
+        """Agrupa os envios por dia e ordena do mais novo para o mais antigo.
+        Retorna [(rotulo, [entries]), ...]; a pagina 0 e sempre o dia mais recente."""
+        groups = {}
+        for e in entries:
+            groups.setdefault(self._hist_day_key(e), []).append(e)
+
+        def sortkey(ents):
+            sd = ents[0].get("save_datetime", "")  # "DD/MM/YYYY HH:MM"
+            try:
+                dd, mm, yy = sd.split(" ")[0].split("/")
+                return (int(yy), int(mm), int(dd))
+            except Exception:
+                return (0, 0, 0)
+
+        ordered = sorted(groups.items(), key=lambda kv: sortkey(kv[1]), reverse=True)
+        result = []
+        for idx, (key, ents) in enumerate(ordered):
+            label = "Lista de Publicações do Dia" if idx == 0 else key
+            result.append((label, ents))
+        return result
+
+    def _hist_go(self, delta: int):
+        groups = self._hist_day_groups(_load_history())
+        if not groups:
+            return
+        self._hist_page = max(0, min(self._hist_page + delta, len(groups) - 1))
+        self._reload_history_panel()
 
     def _reload_history_panel(self):
-        for w in self._hist_inner.winfo_children():
-            w.destroy()
-        self._thumb_refs.clear()
-        entries = _load_history()
-        if not entries:
-            tk.Label(
-                self._hist_inner,
-                text="Nenhum envio registrado ainda.",
-                fg=TXT_M, font=FONT_B, bg=PANEL,
-            ).pack(pady=20, padx=12)
+        inners = [i for i in getattr(self, "_hist_inners", []) if i.winfo_exists()]
+        self._hist_inners = inners
+        if not inners:
             return
-        for entry in entries:
-            self._add_history_row(entry)
+        self._thumb_refs.clear()
+        groups = self._hist_day_groups(_load_history())
+        # Clampa a pagina e escolhe as entradas do dia atual
+        if groups:
+            self._hist_page = max(0, min(self._hist_page, len(groups) - 1))
+            day_label, page_entries = groups[self._hist_page]
+        else:
+            self._hist_page = 0
+            day_label, page_entries = "Lista de Publicações do Dia", []
+
+        # Atualiza os cabecalhos (rotulo do dia + estado das setas) de todos os paineis
+        n = len(groups)
+        for h in getattr(self, "_hist_headers", []):
+            try:
+                h["day"].config(text=day_label)
+                # ◀ = mais antigo (pagina maior); ▶ = mais novo (pagina 0)
+                h["left"].config(fg=(TXT_M if self._hist_page < n - 1 else BORDER),
+                                 cursor=("hand2" if self._hist_page < n - 1 else "arrow"))
+                h["right"].config(fg=(TXT_M if self._hist_page > 0 else BORDER),
+                                  cursor=("hand2" if self._hist_page > 0 else "arrow"))
+            except Exception:
+                pass
+
+        for inner in inners:
+            for w in inner.winfo_children():
+                w.destroy()
+            if not page_entries:
+                tk.Label(
+                    inner, text="Nenhum envio registrado ainda.",
+                    fg=TXT_M, font=FONT_B, bg=PANEL,
+                ).pack(pady=20, padx=12)
+            else:
+                is_current = (self._hist_page == 0)  # so o dia atual e acionavel
+                for entry in page_entries:   # ordem cronologica (mais recentes embaixo)
+                    self._add_history_row(inner, entry, is_current)
 
     def _delete_history_entry(self, entry: dict):
         entries = _load_history()
@@ -1127,8 +1750,8 @@ class App(tk.Tk):
         _save_history(new_entries)
         self._reload_history_panel()
 
-    def _add_history_row(self, entry: dict):
-        row_outer = tk.Frame(self._hist_inner, bg=BORDER, padx=1, pady=1)
+    def _add_history_row(self, parent, entry: dict, is_current: bool = True):
+        row_outer = tk.Frame(parent, bg=BORDER, padx=1, pady=1)
         row_outer.pack(fill="x", padx=4, pady=2)
         row = tk.Frame(row_outer, bg=PANEL, padx=8, pady=6)
         row.pack(fill="both", expand=True)
@@ -1213,31 +1836,42 @@ class App(tk.Tk):
             bg=PANEL, activebackground=INNER, cursor="hand2",
             command=lambda u=url: self._copy_to_clipboard(u),
         ).pack(side="left", padx=(4, 0))
+        _dbf = self.cfg.get("db_folder", "")
+        _folder_path = str(Path(_dbf) / folder) if _dbf and folder else ""
+        self._btn(url_row, "📁", lambda p=_folder_path: self._open_folder(p),
+                  "secondary_sm").pack(side="left", padx=(4, 0))
 
-        # Canto superior direito (sobreposto — nao reserva coluna): Retornar + apagar.
-        # Fica fixo a direita e visivel mesmo com a UI principal estreitada.
-        topright = tk.Frame(row, bg=PANEL)
-        topright.place(relx=1.0, rely=0.0, anchor="ne")
-        self._btn(
-            topright, "↩  Retornar para a Fila",
-            lambda ent=entry: self._return_history_to_queue(ent), "secondary_sm",
-        ).pack(side="left")
-        del_btn = tk.Label(
-            topright, text="×",
-            font=("Segoe UI", 12, "bold"),
-            fg=TXT_M, bg=PANEL, cursor="hand2", padx=4,
-        )
-        del_btn.pack(side="left", padx=(6, 0))
-        del_btn.bind("<Enter>", lambda e: del_btn.config(fg=BDF))
-        del_btn.bind("<Leave>", lambda e: del_btn.config(fg=TXT_M))
-        del_btn.bind("<Button-1>", lambda e, ent=entry: self._delete_history_entry(ent))
+        # Canto superior direito (Retornar + apagar) — SO no dia atual.
+        # Dias passados sao apenas leitura (arquivados).
+        if is_current:
+            topright = tk.Frame(row, bg=PANEL)
+            topright.place(relx=1.0, rely=0.0, anchor="ne")
+            self._btn(
+                topright, "↩  Retornar para a Fila",
+                lambda ent=entry: self._return_history_to_queue(ent), "secondary_sm",
+            ).pack(side="left")
+            del_btn = tk.Label(
+                topright, text="×",
+                font=("Segoe UI", 12, "bold"),
+                fg=TXT_M, bg=PANEL, cursor="hand2", padx=4,
+            )
+            del_btn.pack(side="left", padx=(6, 0))
+            del_btn.bind("<Enter>", lambda e: del_btn.config(fg=BDF))
+            del_btn.bind("<Leave>", lambda e: del_btn.config(fg=TXT_M))
+            del_btn.bind("<Button-1>", lambda e, ent=entry: self._delete_history_entry(ent))
 
     def _return_history_to_queue(self, entry: dict):
-        """Move as imagens da pasta de envio de volta para a fila de espera.
+        """Devolve a publicacao para a origem dela.
 
-        Remove as imagens (e o cache .hashes.json) da pasta, deixando-a livre de
-        novo, e re-enfileira a publicacao para uso posterior.
+        - Origem 'cross' (Filtro Entre Contas): esvazia a pasta de envio e marca
+          o item da lista como disponivel de novo (volta a ficar colorido).
+        - Origem 'link' (padrao): move as imagens de volta para a fila de espera.
         """
+        origin = entry.get("origin") or {}
+        if origin.get("origin") == "cross":
+            self._return_history_to_cross(entry, origin)
+            return
+
         db = self.cfg.get("db_folder")
         folder_label = entry.get("folder", "")
         slot = (Path(db) / folder_label) if db and folder_label else None
@@ -1275,6 +1909,30 @@ class App(tk.Tk):
         self._on_queued()  # recarrega/abre a fila
         self._show_toast("Retornado para a Fila de Espera.", 3000, OK_BG, OK_FG)
 
+    def _return_history_to_cross(self, entry: dict, origin: dict):
+        """Retorno de um item vindo de uma lista Entre Contas: esvazia a pasta
+        de envio e volta o item da lista para 'disponivel' (colorido)."""
+        db = self.cfg.get("db_folder")
+        folder_label = entry.get("folder", "")
+        slot = (Path(db) / folder_label) if db and folder_label else None
+        if slot and slot.is_dir():
+            for img in dedup._sorted_numbered_images(slot):
+                try:
+                    img.unlink()
+                except Exception:
+                    pass
+            cache = slot / dedup._HASH_CACHE
+            if cache.exists():
+                try:
+                    cache.unlink()
+                except Exception:
+                    pass
+        # Volta o item da lista para disponivel (colorido)
+        crossaccount.set_item_field(origin.get("list_id", ""), origin.get("item_id", ""), "used", False)
+        self._delete_history_entry(entry)
+        self._refresh_queue_panel_context()
+        self._show_toast("Retornado à lista (disponível de novo).", 3000, OK_BG, OK_FG)
+
     def _copy_to_clipboard(self, text: str):
         self.clipboard_clear()
         self.clipboard_append(text)
@@ -1310,12 +1968,27 @@ class App(tk.Tk):
         content = tk.Frame(parent, bg=BG)
         content.pack(side="left", fill="both", expand=True)
 
-        hdr = tk.Frame(content, bg=BG)
-        hdr.pack(fill="x", padx=12, pady=(12, 4))
-        tk.Label(
-            hdr, text="FILA DE ESPERA",
+        self._q_hdr = tk.Frame(content, bg=BG)
+        self._q_hdr.pack(fill="x", padx=12, pady=(12, 4))
+        self._q_title = tk.Label(
+            self._q_hdr, text="FILA DE ESPERA",
             font=FONT_LBL, bg=BG, fg=TXT_M, anchor="w",
-        ).pack(side="left")
+        )
+        self._q_title.pack(side="left")
+
+        # Controles do modo 'Entre Contas' (seletor de lista + Recarregar).
+        # Ficam ocultos no modo Filtro por Link.
+        self._q_controls = tk.Frame(content, bg=BG)
+        self._q_list_var = tk.StringVar(value="")
+        self._q_list_ids = []
+        self._q_list_combo = ttk.Combobox(
+            self._q_controls, textvariable=self._q_list_var, state="readonly", font=FONT_S,
+        )
+        self._q_list_combo.pack(fill="x", padx=12)
+        self._q_list_combo.bind("<<ComboboxSelected>>", self._on_cross_list_selected)
+        self._btn(self._q_controls, "↻  Recarregar", self._refresh_cross_list, "secondary_sm").pack(
+            fill="x", padx=12, pady=(6, 2)
+        )
 
         q_outer = tk.Frame(content, bg=BORDER, padx=1, pady=1)
         q_outer.pack(fill="both", expand=True, padx=12, pady=(0, 12))
@@ -1325,7 +1998,7 @@ class App(tk.Tk):
         self._queue_canvas = tk.Canvas(
             q_card, borderwidth=0, highlightthickness=0, bg=PANEL
         )
-        sb_q = ttk.Scrollbar(q_card, orient="vertical", command=self._queue_canvas.yview)
+        sb_q = ttk.Scrollbar(q_card, orient="vertical", command=self._queue_yview)
         self._queue_canvas.configure(yscrollcommand=sb_q.set)
 
         self._queue_inner = tk.Frame(self._queue_canvas, bg=PANEL)
@@ -1339,10 +2012,7 @@ class App(tk.Tk):
             "<Configure>",
             lambda e: self._queue_canvas.configure(scrollregion=self._queue_canvas.bbox("all")),
         )
-        self._queue_canvas.bind(
-            "<Configure>",
-            lambda e: self._queue_canvas.itemconfigure(self._queue_inner_id, width=e.width),
-        )
+        self._queue_canvas.bind("<Configure>", self._on_queue_canvas_configure)
         self._queue_canvas.bind(
             "<Enter>",
             lambda e: self._queue_canvas.bind_all("<MouseWheel>", self._on_queue_scroll),
@@ -1357,6 +2027,19 @@ class App(tk.Tk):
 
     def _on_queue_scroll(self, event):
         self._queue_canvas.yview_scroll(int(-1 * (event.delta / 120)), "units")
+        if getattr(self, "_tab_active", "") == "cross":
+            self._cross_virtual_update()
+
+    def _queue_yview(self, *args):
+        """Scrollbar da fila: rola e, no modo Entre Contas, atualiza a janela virtual."""
+        self._queue_canvas.yview(*args)
+        if getattr(self, "_tab_active", "") == "cross":
+            self._cross_virtual_update()
+
+    def _on_queue_canvas_configure(self, event):
+        self._queue_canvas.itemconfigure(self._queue_inner_id, width=event.width)
+        if getattr(self, "_tab_active", "") == "cross":
+            self._cross_virtual_update()
 
     def _reload_queue_panel(self):
         if not hasattr(self, "_queue_inner"):
@@ -1755,7 +2438,7 @@ class App(tk.Tk):
         y = self.winfo_y() + (self.winfo_height() - h) // 2
         dlg.geometry(f"+{x}+{y}")
 
-    def _record_history(self, url: str, slot: Path, ig_meta: dict = None):
+    def _record_history(self, url: str, slot: Path, ig_meta: dict = None, origin: dict = None):
         thumb_path = ""
         for ext in ("jpg", "jpeg", "png", "webp"):
             p = slot / f"1.{ext}"
@@ -1776,9 +2459,10 @@ class App(tk.Tk):
             "folder": folder_label,
             "thumbnail": thumb_path,
             "meta": {**default_meta, **(ig_meta or {})},
+            "origin": origin or {"origin": "link"},
         }
         entries = _load_history()
-        entries.insert(0, entry)
+        entries.append(entry)   # novos entram no fim (timeline: mais recentes embaixo)
         _save_history(entries)
         self.after(0, self._reload_history_panel)
 

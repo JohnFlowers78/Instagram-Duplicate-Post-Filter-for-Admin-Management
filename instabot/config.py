@@ -7,8 +7,8 @@ CONFIG_PATH = DATA_DIR / "config.json"
 
 DEFAULTS = {
     "db_folder": "",
-    "person_initial": "V",
-    "slots_per_day": 6,
+    "person_initial": "Z",
+    "slots_per_day": 4,
     "hash_threshold": 5,
     "include_day_counter": True,
     "include_person_initial": True,

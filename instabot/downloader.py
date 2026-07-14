@@ -1,4 +1,5 @@
 import re
+import time
 from pathlib import Path
 from typing import Callable, Optional
 
@@ -236,8 +237,59 @@ def _extract_ig_meta(page, shortcode: str = "") -> dict:
     return meta
 
 
+def _instagram_logged_in(context) -> bool:
+    """True se o perfil do navegador tem sessao ativa no Instagram (cookie sessionid)."""
+    try:
+        for c in context.cookies("https://www.instagram.com"):
+            if c.get("name") == "sessionid" and c.get("value"):
+                return True
+    except Exception:
+        pass
+    return False
+
+
+def _wait_instagram_login(context, page, progress_cb: ProgressCallback = None,
+                          login_wait_cb=None, timeout_s: int = 300) -> bool:
+    """Garante login no Instagram antes de coletar as metricas.
+
+    Sem sessao logada o Instagram esconde o post (pede maioridade/conta). Se nao
+    houver login, abre a tela de login, avisa a UI (login_wait_cb(True)) e fica
+    aguardando o usuario entrar — o processo continua sozinho assim que o cookie
+    de sessao aparece. Retorna True se logado; False se o tempo esgotar.
+    """
+    if _instagram_logged_in(context):
+        return True
+    _report(progress_cb, "Instagram SEM LOGIN — faça login na janela do Chrome para coletar as métricas...")
+    if login_wait_cb:
+        try:
+            login_wait_cb(True)
+        except Exception:
+            pass
+    try:
+        page.goto("https://www.instagram.com/accounts/login/",
+                  wait_until="domcontentloaded", timeout=30000)
+    except Exception:
+        pass
+    ok = False
+    deadline = time.monotonic() + timeout_s
+    while time.monotonic() < deadline:
+        page.wait_for_timeout(3000)
+        if _instagram_logged_in(context):
+            ok = True
+            break
+    if login_wait_cb:
+        try:
+            login_wait_cb(False)
+        except Exception:
+            pass
+    _report(progress_cb, "Login detectado! Continuando..." if ok
+            else "Sem login após aguardar — seguindo sem curtidas/comentários.")
+    return ok
+
+
 def fetch_meta_batch(urls: list[str], progress_cb: ProgressCallback = None,
-                     on_meta: Optional[Callable[[int, str, Optional[dict]], None]] = None) -> list:
+                     on_meta: Optional[Callable[[int, str, Optional[dict]], None]] = None,
+                     login_wait_cb=None) -> list:
     """Abre o navegador UMA vez e visita cada publicacao para recapturar
     curtidas/comentarios/data (requer login no Instagram no perfil do bot).
 
@@ -263,6 +315,9 @@ def fetch_meta_batch(urls: list[str], progress_cb: ProgressCallback = None,
         stealth.apply_stealth_sync(context)
         page = context.pages[0] if context.pages else context.new_page()
         try:
+            if not _wait_instagram_login(context, page, progress_cb, login_wait_cb):
+                _report(progress_cb, "Atualização de métricas cancelada — faça login e tente de novo.")
+                return results
             for i, url in enumerate(urls):
                 _report(progress_cb, f"({i + 1}/{len(urls)}) visitando a publicação...")
                 try:
@@ -286,6 +341,7 @@ def download_carousel(
     instagram_url: str,
     dest_folder: Path,
     progress_cb: ProgressCallback = None,
+    login_wait_cb=None,
 ) -> tuple[list[Path], dict]:
     dest_folder.mkdir(parents=True, exist_ok=True)
     PROFILE_DIR.mkdir(parents=True, exist_ok=True)
@@ -351,12 +407,15 @@ def download_carousel(
                 )
 
             # Visita o Instagram para capturar curtidas/comentarios enquanto o
-            # navegador ainda esta aberto. Requer login no Instagram no navegador do bot.
+            # navegador ainda esta aberto. Sem sessao logada o Instagram esconde o
+            # post — o bot PAUSA e espera o usuario logar (ex.: 1a execucao numa
+            # maquina nova); segue sem metricas se o tempo esgotar.
             try:
                 _report(progress_cb, "Coletando dados da publicacao no Instagram...")
-                page.goto(instagram_url, wait_until="domcontentloaded", timeout=20000)
-                page.wait_for_timeout(2500)
-                ig_meta = _extract_ig_meta(page, shortcode)
+                if _wait_instagram_login(context, page, progress_cb, login_wait_cb):
+                    page.goto(instagram_url, wait_until="domcontentloaded", timeout=20000)
+                    page.wait_for_timeout(2500)
+                    ig_meta = _extract_ig_meta(page, shortcode)
             except Exception:
                 pass
         finally:

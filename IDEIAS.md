@@ -37,14 +37,15 @@ Ao levar uma nova versão para a máquina de trabalho: trocar só o `FiltroDeRep
 
 1. **Modo tolerante / "suspeitas de repetida"** — opção no Recarregar que ignora **2** cards em vez de 1 e pinta as quase-repetidas de **laranja** ("suspeita"), com botões É/Não é para revisar em um clique. Transforma a caça manual numa revisão de lista curta. Útil se os falsos "disponíveis" persistirem mesmo após purge + Recarregar.
 2. **Sugerir a pasta mais parecida ao marcar "É Repetida"** — o app calcula o melhor candidato na Pasta de Destino e pré-preenche o campo de pasta/dia no dialog (hoje o campo é manual e opcional).
+3. **Botão "Sair do Instagram do robô"** (Configurações) — limpa a sessão do perfil do Chrome do bot para trocar a conta logada sem mexer em pastas; o próximo uso cai na pausa de login normalmente.
 
 ### Médio/longo prazo (roadmap discutido)
 
-3. **UI web** — backend continua Python (FastAPI servindo os módulos atuais), front em TypeScript. A lógica já está modular (`gui.py` é só um "chamador"); migrar apenas quando for a hora.
-4. **Feed raspador por engajamento** — "Apify própria" em Playwright: varrer perfis e ranquear publicações por curtidas/comentários para alimentar as filas. Sem APIs pagas.
-5. **Bot de publicação desktop human-like** — Graph API está fora (não permite escolher música em alta); publicar via automação com comportamento humano.
-6. **Geração de cards** — cards de troca de palavra por **template + código (PIL)**; artes novas via **bot no ChatGPT** (assinatura própria, sem pagar API).
-7. **Celular como controle remoto** — depois da UI web, expor as ações via API para operar do celular.
+4. **UI web** — backend continua Python (FastAPI servindo os módulos atuais), front em TypeScript. A lógica já está modular (`gui.py` é só um "chamador"); migrar apenas quando for a hora.
+5. **Feed raspador por engajamento** — "Apify própria" em Playwright: varrer perfis e ranquear publicações por curtidas/comentários para alimentar as filas. Sem APIs pagas.
+6. **Bot de publicação desktop human-like** — Graph API está fora (não permite escolher música em alta); publicar via automação com comportamento humano.
+7. **Geração de cards** — cards de troca de palavra por **template + código (PIL)**; artes novas via **bot no ChatGPT** (assinatura própria, sem pagar API).
+8. **Celular como controle remoto** — depois da UI web, expor as ações via API para operar do celular.
 
 ---
 

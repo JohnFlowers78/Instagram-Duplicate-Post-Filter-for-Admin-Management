@@ -71,7 +71,7 @@ def set_large_icons_view(folder: Path) -> None:
 def ensure_day_folder(
     db_folder: Path,
     initial: str,
-    slots: int = 6,
+    slots: int = 4,
     include_day_counter: bool = True,
     include_person_initial: bool = True,
 ) -> Path:
@@ -104,7 +104,7 @@ def ensure_day_folder(
     return day_folder
 
 
-def find_next_empty_slot(day_folder: Path, slots: int = 6) -> Optional[Path]:
+def find_next_empty_slot(day_folder: Path, slots: int = 4) -> Optional[Path]:
     """Retorna a primeira subpasta (1..slots) que ainda nao tem midia."""
     for i in range(1, slots + 1):
         slot = day_folder / str(i)

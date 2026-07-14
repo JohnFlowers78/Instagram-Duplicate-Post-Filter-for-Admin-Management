@@ -200,8 +200,8 @@ class App(tk.Tk):
         # Variaveis de configuracao (aba Configuracoes)
         self._var_counter = tk.BooleanVar(value=self.cfg.get("include_day_counter", True))
         self._var_initial = tk.BooleanVar(value=self.cfg.get("include_person_initial", True))
-        self._var_letter  = tk.StringVar(value=self.cfg.get("person_initial", "V"))
-        self._var_slots   = tk.StringVar(value=str(self.cfg.get("slots_per_day", 6)))
+        self._var_letter  = tk.StringVar(value=self.cfg.get("person_initial", "Z"))
+        self._var_slots   = tk.StringVar(value=str(self.cfg.get("slots_per_day", 4)))
         self._var_thresh  = tk.StringVar(value=str(self.cfg.get("hash_threshold", 5)))
         self._var_theme   = tk.StringVar(value=self.cfg.get("theme", "light"))
         self._theme_applied = self.cfg.get("theme", "light")
@@ -496,6 +496,7 @@ class App(tk.Tk):
         if getattr(self, "_tab_active", "link") == "cross":
             self._q_title.config(text="LISTAS ENTRE CONTAS")
             self._q_metrics_btn.pack_forget()
+            self._q_clear_btn.pack_forget()
             if not self._q_controls.winfo_ismapped():
                 self._q_controls.pack(fill="x", after=self._q_hdr)
             self._repair_cross_used_flags(crossaccount.get_active())
@@ -506,6 +507,8 @@ class App(tk.Tk):
             self._q_title.config(text="FILA DE ESPERA")
             if not self._q_metrics_btn.winfo_ismapped():
                 self._q_metrics_btn.pack(side="right")
+            if not self._q_clear_btn.winfo_ismapped():
+                self._q_clear_btn.pack(side="right", padx=(0, 6))
             self._q_controls.pack_forget()
             self._reload_queue_panel()
 
@@ -991,8 +994,8 @@ class App(tk.Tk):
             self._show_toast("Imagens não encontradas na pasta de origem.", 4000, ERR_BG, ERR_FG)
             return
         db_folder = Path(db)
-        initial     = self.cfg.get("person_initial", "V")
-        slots       = self.cfg.get("slots_per_day", 6)
+        initial     = self.cfg.get("person_initial", "Z")
+        slots       = self.cfg.get("slots_per_day", 4)
         inc_counter = self.cfg.get("include_day_counter", True)
         inc_initial = self.cfg.get("include_person_initial", True)
         day_folder = organizer.ensure_day_folder(db_folder, initial, slots, inc_counter, inc_initial)
@@ -1010,9 +1013,15 @@ class App(tk.Tk):
                 (slot / "Legenda.txt").write_text(caption, encoding="utf-8")
             except Exception:
                 pass
+        lst = crossaccount.get_list(list_id) or {}
         self._record_history(
             item.get("url", ""), slot, item.get("meta", {}),
-            origin={"origin": "cross", "list_id": list_id, "item_id": item_id},
+            origin={
+                "origin": "cross", "list_id": list_id, "item_id": item_id,
+                # de onde veio na outra conta (mostrado no Historico)
+                "src_label": item.get("folder", ""),
+                "list_name": lst.get("name", ""),
+            },
         )
         crossaccount.set_item_field(list_id, item_id, "used", True)
         self._render_cross_list()
@@ -1024,6 +1033,25 @@ class App(tk.Tk):
         self._populate_cross_combo()
         self._render_cross_list()
         self._show_toast("Removido da lista.", 3000, ERR_BG, ERR_FG)
+
+    def _delete_cross_list(self):
+        """Apaga a lista ativa inteira (as imagens da conta de origem ficam intactas)."""
+        active = crossaccount.get_active()
+        lst = crossaccount.get_list(active) if active else None
+        if not lst:
+            self._show_toast("Nenhuma lista selecionada.", 3000, ERR_BG, ERR_FG)
+            return
+        n = len(lst.get("items", []))
+        if not self._confirm_dialog(
+            "Apagar lista",
+            f"A lista '{lst.get('name', '?')}' ({n} publicação(ões)) será apagada.\n"
+            "As imagens da conta de origem NÃO são apagadas. Continuar?",
+        ):
+            return
+        crossaccount.delete_list(active)
+        self._populate_cross_combo()
+        self._render_cross_list(reset_scroll=True)
+        self._show_toast("Lista apagada.", 3000, OK_BG, OK_FG)
 
     def _dup_location_label(self, match, db_folder) -> str:
         """Rotulo 'Dia.../N' de onde a publicacao ja existe no destino."""
@@ -1250,7 +1278,8 @@ class App(tk.Tk):
                          bg=BG, fg=TXT_M, cursor="hand2")
         right.pack(side="left", padx=(5, 0))
         right.bind("<Button-1>", lambda e: self._hist_go(-1))   # dia mais novo
-        self._btn(hist_hdr, "Resetar", self._reset_history, "danger_sm").pack(side="right")
+        reset_btn = self._btn(hist_hdr, "Resetar", self._reset_history, "danger_sm")
+        reset_btn.pack(side="right")
 
         # Rotulo do dia que estamos vendo (centralizado)
         nav = tk.Frame(parent, bg=BG)
@@ -1258,7 +1287,8 @@ class App(tk.Tk):
         day_lbl = tk.Label(nav, text="Lista de Publicações do Dia", font=FONT_S,
                            bg=BG, fg=TXT_B, anchor="center")
         day_lbl.pack(fill="x", expand=True)
-        self._hist_headers.append({"day": day_lbl, "left": left, "right": right})
+        self._hist_headers.append({"day": day_lbl, "left": left, "right": right,
+                                   "reset": reset_btn})
 
         hist_outer = tk.Frame(parent, bg=BORDER, padx=1, pady=1)
         hist_outer.pack(fill="both", expand=True, padx=12, pady=(0, 10))
@@ -1278,6 +1308,7 @@ class App(tk.Tk):
             "<MouseWheel>", lambda ev, cc=c: cc.yview_scroll(int(-1 * (ev.delta / 120)), "units")))
         canvas.bind("<Leave>", lambda e, c=canvas: c.unbind_all("<MouseWheel>"))
         self._hist_inners.append(inner)
+        self._start_day_watch()
 
     # ------------------------------------------------------------------
     # Aba: Filtro Entre Contas
@@ -1999,19 +2030,52 @@ class App(tk.Tk):
             except Exception:
                 return (0, 0, 0)
 
-        ordered = sorted(groups.items(), key=lambda kv: sortkey(kv[1]), reverse=True)
-        result = []
-        for idx, (key, ents) in enumerate(ordered):
-            label = "Lista de Publicações do Dia" if idx == 0 else key
-            result.append((label, ents))
-        return result
+        return sorted(groups.items(), key=lambda kv: sortkey(kv[1]), reverse=True)
+
+    def _group_date(self, ents: list) -> str:
+        """Data (DD/MM/YYYY) do primeiro envio de um grupo de dia."""
+        sd = ents[0].get("save_datetime", "") if ents else ""
+        return sd.split(" ")[0]
+
+    def _hist_pages(self) -> list:
+        """Paginas do historico: a pagina 0 e SEMPRE o dia de HOJE (data da maquina).
+
+        Se hoje ainda nao tem envios, a pagina 0 e uma lista em branco virtual e os
+        dias anteriores ficam atras dela (seta ◀). A verdade e a DATA, nao a posicao
+        na lista — assim a pagina de ontem nunca aparece como editavel de manha."""
+        groups = self._hist_day_groups(_load_history())
+        today = date.today().strftime("%d/%m/%Y")
+        if groups and self._group_date(groups[0][1]) == today:
+            return groups
+        return [("", [])] + groups   # pagina virtual do hoje em branco
 
     def _hist_go(self, delta: int):
-        groups = self._hist_day_groups(_load_history())
-        if not groups:
+        pages = self._hist_pages()
+        if not pages:
             return
-        self._hist_page = max(0, min(self._hist_page + delta, len(groups) - 1))
+        self._hist_page = max(0, min(self._hist_page + delta, len(pages) - 1))
         self._reload_history_panel()
+
+    def _start_day_watch(self):
+        """Vigia leve da virada do dia: a cada 60s compara a data atual com a
+        exibida (duas strings — custo zero). A verificacao de verdade acontece em
+        todo render; isto so cobre o app aberto parado atravessando a meia-noite."""
+        if getattr(self, "_day_watch_on", False):
+            return
+        self._day_watch_on = True
+        self._ui_day = date.today().isoformat()
+        self.after(60000, self._day_watch_tick)
+
+    def _day_watch_tick(self):
+        try:
+            today = date.today().isoformat()
+            if today != getattr(self, "_ui_day", today):
+                self._ui_day = today
+                self._hist_page = 0          # vira para o hoje em branco
+                self._reload_history_panel()
+        except Exception:
+            pass
+        self.after(60000, self._day_watch_tick)
 
     def _reload_history_panel(self):
         inners = [i for i in getattr(self, "_hist_inners", []) if i.winfo_exists()]
@@ -2019,17 +2083,15 @@ class App(tk.Tk):
         if not inners:
             return
         self._thumb_refs.clear()
-        groups = self._hist_day_groups(_load_history())
-        # Clampa a pagina e escolhe as entradas do dia atual
-        if groups:
-            self._hist_page = max(0, min(self._hist_page, len(groups) - 1))
-            day_label, page_entries = groups[self._hist_page]
-        else:
-            self._hist_page = 0
-            day_label, page_entries = "Lista de Publicações do Dia", []
+        pages = self._hist_pages()
+        # Clampa a pagina e escolhe as entradas do dia exibido
+        self._hist_page = max(0, min(getattr(self, "_hist_page", 0), len(pages) - 1))
+        day_key, page_entries = pages[self._hist_page]
+        is_today = (self._hist_page == 0)   # pagina 0 = SEMPRE o hoje real
+        day_label = "Lista de Publicações do Dia" if is_today else day_key
 
-        # Atualiza os cabecalhos (rotulo do dia + estado das setas) de todos os paineis
-        n = len(groups)
+        # Atualiza os cabecalhos (rotulo do dia, setas e Resetar) de todos os paineis
+        n = len(pages)
         for h in getattr(self, "_hist_headers", []):
             try:
                 h["day"].config(text=day_label)
@@ -2038,6 +2100,12 @@ class App(tk.Tk):
                                  cursor=("hand2" if self._hist_page < n - 1 else "arrow"))
                 h["right"].config(fg=(TXT_M if self._hist_page > 0 else BORDER),
                                   cursor=("hand2" if self._hist_page > 0 else "arrow"))
+                # Resetar so existe no HOJE com envios — dias passados sao arquivo
+                if "reset" in h:
+                    if is_today and page_entries:
+                        h["reset"].pack(side="right")
+                    else:
+                        h["reset"].pack_forget()
             except Exception:
                 pass
 
@@ -2045,14 +2113,15 @@ class App(tk.Tk):
             for w in inner.winfo_children():
                 w.destroy()
             if not page_entries:
+                msg = ("Nenhuma publicação hoje ainda." if is_today
+                       else "Nenhum envio registrado neste dia.")
                 tk.Label(
-                    inner, text="Nenhum envio registrado ainda.",
+                    inner, text=msg,
                     fg=TXT_M, font=FONT_B, bg=PANEL,
                 ).pack(pady=20, padx=12)
             else:
-                is_current = (self._hist_page == 0)  # so o dia atual e acionavel
                 for entry in page_entries:   # ordem cronologica (mais recentes embaixo)
-                    self._add_history_row(inner, entry, is_current)
+                    self._add_history_row(inner, entry, is_today)
 
     def _delete_history_entry(self, entry: dict):
         entries = _load_history()
@@ -2069,6 +2138,29 @@ class App(tk.Tk):
             ]
         _save_history(new_entries)
         self._reload_history_panel()
+
+    def _cross_src_info(self, entry: dict) -> str:
+        """Linha 'de onde veio' para envios do Entre Contas: pasta do dia na conta
+        de origem + inicial da outra conta. Vazio para envios por link."""
+        origin = entry.get("origin") or {}
+        if origin.get("origin") != "cross":
+            return ""
+        label = origin.get("src_label", "")
+        if not label:
+            # registros antigos (sem src_label): tenta buscar no item da lista
+            it = crossaccount.find_item(origin.get("list_id", ""), origin.get("item_id", ""))
+            label = (it or {}).get("folder", "")
+        first = label.replace("\\", "/").split("/")[0] if label else ""
+        m = organizer.DIA_FOLDER_RE.match(first)
+        initial = (m.group(5) or "").upper() if m else ""
+        name = origin.get("list_name", "")
+        if initial:
+            src = f"outra conta ({initial})"
+        elif name:
+            src = f"outra conta '{name}'"
+        else:
+            src = "outra conta"
+        return f"↪ De {src}: {label}" if label else f"↪ De {src}"
 
     def _add_history_row(self, parent, entry: dict, is_current: bool = True):
         row_outer = tk.Frame(parent, bg=BORDER, padx=1, pady=1)
@@ -2117,6 +2209,14 @@ class App(tk.Tk):
             info, text=f"Salva em: {save_dt}", anchor="w",
             font=FONT_S, bg=PANEL, fg=TXT_M,
         ).pack(fill="x")
+
+        # Se veio do Filtro Entre Contas: mostra o dia/pasta na conta de origem
+        src_info = self._cross_src_info(entry)
+        if src_info:
+            tk.Label(
+                info, text=src_info, anchor="w",
+                font=FONT_S, bg=PANEL, fg=ACCENT,
+            ).pack(fill="x")
 
         meta_row = tk.Frame(info, bg=PANEL)
         meta_row.pack(fill="x", pady=(2, 0))
@@ -2275,20 +2375,22 @@ class App(tk.Tk):
                 pass
 
     def _reset_history(self):
-        """Reseta o DIA que está sendo visto, devolvendo cada publicação à sua origem:
+        """Reseta SOMENTE o dia de HOJE, devolvendo cada publicação à sua origem:
         cross → volta pra lista Entre Contas; link da fila → volta pra Fila de Espera;
-        link direto → só esvazia a pasta (o usuário cola o link de novo)."""
-        groups = self._hist_day_groups(_load_history())
-        if not groups:
+        link direto → só esvazia a pasta (o usuário cola o link de novo).
+        Dias passados são arquivo — nunca são resetáveis."""
+        if getattr(self, "_hist_page", 0) != 0:
+            self._show_toast("Só a Lista de Publicações do Dia (hoje) pode ser resetada.",
+                             4000, ERR_BG, ERR_FG)
             return
-        page = max(0, min(getattr(self, "_hist_page", 0), len(groups) - 1))
-        day_label, page_entries = groups[page]
+        page_entries = self._hist_pages()[0][1]
         if not page_entries:
+            self._show_toast("Nenhuma publicação hoje para resetar.", 3500, ERR_BG, ERR_FG)
             return
         if not self._confirm_dialog(
             "Resetar o dia",
-            f"Devolver as {len(page_entries)} publicação(ões) de \"{day_label}\" às suas filas "
-            f"de origem e limpar este dia do histórico?\n\n"
+            f"Devolver as {len(page_entries)} publicação(ões) de HOJE às suas filas "
+            f"de origem e limpar o dia do histórico?\n\n"
             f"As que vieram por link direto NÃO voltam para nenhuma fila — você cola o link de novo.",
         ):
             return
@@ -2353,6 +2455,10 @@ class App(tk.Tk):
             self._q_hdr, "↻ Métricas", self._refresh_queue_metrics, "secondary_sm"
         )
         self._q_metrics_btn.pack(side="right")
+        self._q_clear_btn = self._btn(
+            self._q_hdr, "Esvaziar", self._clear_waiting_queue, "danger_sm"
+        )
+        self._q_clear_btn.pack(side="right", padx=(0, 6))
 
         # Controles do modo 'Entre Contas' (seletor de lista + Recarregar).
         # Ficam ocultos no modo Filtro por Link.
@@ -2364,8 +2470,13 @@ class App(tk.Tk):
         )
         self._q_list_combo.pack(fill="x", padx=12)
         self._q_list_combo.bind("<<ComboboxSelected>>", self._on_cross_list_selected)
-        self._btn(self._q_controls, "↻  Recarregar", self._refresh_cross_list, "secondary_sm").pack(
-            fill="x", padx=12, pady=(6, 2)
+        cr_row = tk.Frame(self._q_controls, bg=BG)
+        cr_row.pack(fill="x", padx=12, pady=(6, 2))
+        self._btn(cr_row, "↻  Recarregar", self._refresh_cross_list, "secondary_sm").pack(
+            side="left", fill="x", expand=True
+        )
+        self._btn(cr_row, "🗑 Apagar Lista", self._delete_cross_list, "danger_sm").pack(
+            side="left", fill="x", expand=True, padx=(6, 0)
         )
 
         # --- Barra de filtros / ordenacao (modo Entre Contas) ---
@@ -2627,8 +2738,8 @@ class App(tk.Tk):
             self._reload_queue_panel()
             return
 
-        initial     = self.cfg.get("person_initial", "V")
-        slots       = self.cfg.get("slots_per_day", 6)
+        initial     = self.cfg.get("person_initial", "Z")
+        slots       = self.cfg.get("slots_per_day", 4)
         inc_counter = self.cfg.get("include_day_counter", True)
         inc_initial = self.cfg.get("include_person_initial", True)
 
@@ -2654,6 +2765,26 @@ class App(tk.Tk):
         waitqueue.remove_from_queue(entry.get("id", ""))
         self._reload_queue_panel()
         self._show_toast("Removido da fila de espera.", 3000, ERR_BG, ERR_FG)
+
+    def _clear_waiting_queue(self):
+        """Esvazia a Fila de Espera inteira (remove itens + apaga imagens estacionadas)."""
+        if getattr(self, "_metrics_busy", False):
+            self._show_toast("Aguarde a atualização de métricas terminar.", 4000, ERR_BG, ERR_FG)
+            return
+        entries = waitqueue.load_queue()
+        if not entries:
+            self._show_toast("A fila já está vazia.", 3000, ERR_BG, ERR_FG)
+            return
+        if not self._confirm_dialog(
+            "Esvaziar Fila de Espera",
+            f"As {len(entries)} publicação(ões) da fila serão removidas e as imagens "
+            "estacionadas apagadas. Continuar?",
+        ):
+            return
+        for e in entries:
+            waitqueue.remove_from_queue(e.get("id", ""))
+        self._reload_queue_panel()
+        self._show_toast("Fila de espera esvaziada.", 3000, OK_BG, OK_FG)
 
     # ------------------------------------------------------------------
     # Fila: atualizar curtidas/comentarios via bot (link por link)
@@ -2714,7 +2845,8 @@ class App(tk.Tk):
             self._log_async(f"  {i + 1}/{len(urls)}: item saiu da fila — ignorado")
 
         try:
-            downloader.fetch_meta_batch(urls, progress_cb=self._log_async, on_meta=on_meta)
+            downloader.fetch_meta_batch(urls, progress_cb=self._log_async, on_meta=on_meta,
+                                        login_wait_cb=self._login_wait_cb)
             self._log_async(f"Métricas atualizadas: {updated[0]} de {len(urls)}.")
         except Exception as exc:
             self._log_async(f"ERRO ao atualizar métricas: {exc}")
@@ -2741,6 +2873,49 @@ class App(tk.Tk):
                     except tk.TclError:
                         pass
                 return
+
+    # --- Aviso de login no Instagram (o bot pausa e espera o usuario entrar) ---
+
+    def _login_wait_cb(self, active: bool):
+        """Chamado pelo downloader (thread) quando o bot fica aguardando login."""
+        self.after(0, self._show_login_popup if active else self._close_login_popup)
+
+    def _show_login_popup(self):
+        self._close_login_popup()
+        pop = tk.Toplevel(self)
+        self._login_popup = pop
+        pop.title("Login no Instagram")
+        pop.resizable(False, False)
+        pop.transient(self)
+        pop.attributes("-topmost", True)
+        pop.configure(bg=PANEL)
+        tk.Label(pop, text="🔐  Login necessário", font=FONT_H, bg=PANEL, fg=TXT_H).pack(
+            padx=28, pady=(20, 6)
+        )
+        tk.Label(
+            pop,
+            text="Para capturar curtidas e comentários, faça login no Instagram\n"
+                 "na janela do Chrome que o robô abriu.\n\n"
+                 "O processo continua sozinho assim que o login for detectado\n"
+                 "(aguarda até 5 minutos — sem login, segue sem as métricas).",
+            font=FONT_B, bg=PANEL, fg=TXT_B, justify="center",
+        ).pack(padx=28, pady=(0, 18))
+        self.update_idletasks()
+        pop.update_idletasks()
+        w = max(pop.winfo_reqwidth(), 380)
+        h = max(pop.winfo_reqheight(), 140)
+        x = self.winfo_x() + (self.winfo_width() - w) // 2
+        y = self.winfo_y() + (self.winfo_height() - h) // 2
+        pop.geometry(f"{w}x{h}+{x}+{y}")
+
+    def _close_login_popup(self):
+        pop = getattr(self, "_login_popup", None)
+        if pop is not None:
+            try:
+                pop.destroy()
+            except Exception:
+                pass
+            self._login_popup = None
 
     # ------------------------------------------------------------------
     # Fila: posicionamento e arraste suave (estilo edicao de playlist)
@@ -3051,8 +3226,8 @@ class App(tk.Tk):
         tmp_dir = Path(tempfile.mkdtemp(prefix="instabot_"))
         try:
             self._step(0, "Verificando configuracoes...")
-            initial     = self.cfg.get("person_initial", "V")
-            slots       = self.cfg.get("slots_per_day", 6)
+            initial     = self.cfg.get("person_initial", "Z")
+            slots       = self.cfg.get("slots_per_day", 4)
             threshold   = self.cfg.get("hash_threshold", 5)
             inc_counter = self.cfg.get("include_day_counter", True)
             inc_initial = self.cfg.get("include_person_initial", True)
@@ -3075,7 +3250,8 @@ class App(tk.Tk):
 
             self._step(2, "Baixando midias do snapinsta.to...")
             media_paths, ig_meta = downloader.download_carousel(
-                link, tmp_dir, progress_cb=lambda m: self._log_async(m)
+                link, tmp_dir, progress_cb=lambda m: self._log_async(m),
+                login_wait_cb=self._login_wait_cb,
             )
 
             proceed_label = (

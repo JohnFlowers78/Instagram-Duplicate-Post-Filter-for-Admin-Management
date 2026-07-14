@@ -114,7 +114,7 @@ O navegador Chrome que o app abre é um perfil persistente. Na primeira vez:
 
 1. Inicie qualquer pipeline (cole um link e clique em Iniciar)
 2. O Chrome abrirá o SnapInsta.to. Após o download, o app navega para o Instagram
-3. Se ainda não estiver logado, faça login manualmente nesta janela do Chrome
+3. Sem sessão logada, o app **pausa e avisa** (balão "🔐 Login necessário" + tela de login aberta no Chrome): faça login nessa janela e o processo **continua sozinho** assim que a sessão for detectada (aguarda até 5 minutos; sem login, segue sem curtidas/comentários)
 4. A sessão fica salva — nas próximas vezes o login é automático
 
 ### Fluxo de uso normal (aba "Filtro por Link")
@@ -134,6 +134,7 @@ Publicações adicionadas à Fila de Espera são **baixadas e estacionadas** par
 - **Remover da Espera** (vermelho): tira da fila e apaga as imagens estacionadas (libera espaço).
 - **Reordenar**: arraste pela alça **⠿** (canto superior direito de cada item) para mudar a ordem — o movimento é suave, estilo edição de playlist.
 - **↻ Métricas** (topo do painel): o bot abre o navegador e visita cada link da fila, um por um, atualizando curtidas e comentários. Pede confirmação antes (o sistema fica ocupado durante o processo) e os cartões atualizam em tempo real; se uma captura falhar, os valores antigos são mantidos.
+- **Esvaziar** (topo do painel): remove todas as publicações da fila e apaga as imagens estacionadas (com confirmação).
 - O painel é **redimensionável** (puxe a alça **⋮** na borda esquerda dele).
 
 Só entram na fila publicações **não repetidas** (o filtro roda antes). Se você tentar **Utilizar agora** uma publicação que já está na fila, o app avisa — e, se você confirmar o uso, a cópia da fila é removida automaticamente.
@@ -146,7 +147,7 @@ Serve para **reaproveitar conteúdo de outra conta** (por exemplo, entre cliente
 2. Dê um **nome à lista** e clique em **Analisar Conta**
 3. O app varre **todas** as publicações da pasta, compara cada uma com a sua Pasta de Destino e cria uma lista na fila da direita
 
-As listas ficam no painel da direita, com um **seletor (dropdown)** para alternar entre as contas/clientes e um botão **↻ Recarregar** (re-checa quais ainda estão disponíveis).
+As listas ficam no painel da direita, com um **seletor (dropdown)** para alternar entre as contas/clientes, um botão **↻ Recarregar** (re-checa quais ainda estão disponíveis) e um botão **🗑 Apagar Lista** (remove a lista ativa com confirmação — as imagens da conta de origem ficam intactas).
 
 - **Repetida** (já existe no destino) → aparece **em cinza**, mostrando em qual pasta já existe
 - **Disponível** → item colorido, com **Utilizar de Próxima** (vai pra próxima pasta livre + histórico) e fica cinza depois de usada
@@ -198,8 +199,8 @@ As pastas de slot abrem automaticamente em modo **Ícones Grandes** no Explorer 
 | Pasta de Destino | — | Pasta base dos seus envios (comparação) e onde as pastas dos dias são criadas |
 | Incluir contador de dias | Ativado | Adiciona `Dia1`, `Dia2`... no nome da pasta |
 | Incluir inicial da pessoa | Ativado | Adiciona a inicial do responsável pelo envio |
-| Inicial da pessoa | `V` | Letra que identifica o responsável |
-| Publicações por dia | `6` | Quantos slots são criados na pasta do dia |
+| Inicial da pessoa | `Z` | Letra que identifica o responsável |
+| Publicações por dia | `4` | Quantos slots são criados na pasta do dia |
 | Limiar de similaridade | `5` | Sensibilidade do filtro de duplicatas (veja abaixo) |
 | Aparência (tema) | `Claro` | Alterna entre tema claro e escuro (aplica na hora) |
 
@@ -235,12 +236,13 @@ O painel **Histórico de Envios** é a *timeline do dia*, compartilhado entre as
 
 - Thumbnail da primeira imagem, nome da pasta de envio
 - **Salva em:** data/hora do processamento · **Postado em:** data de publicação no Instagram · curtidas e comentários
+- Vindas do Filtro Entre Contas mostram a origem: **↪ De outra conta (R): Dia.../N** (dia e inicial da conta de origem)
 - Link clicável com botão de copiar (mini balão **"Copiado!"**) e botão **📁** para abrir a pasta
 - No **dia atual**: botões **↩ Retornar para a Fila** (devolve a publicação para a origem) e **×** (apaga o registro)
 
-**Navegação por dia:** as setas **◀ ▶** ao lado do título viajam entre os dias anteriores (mostrando o nome da pasta do dia). Os novos envios entram **no fim** da lista. Dias passados são **somente leitura** (sem os botões de ação). O arquivo fica em `data/history.json`.
+**Navegação por dia:** a página inicial é **sempre o dia de HOJE** (pela data da máquina) — se hoje ainda não teve envios, aparece uma lista em branco e os dias anteriores ficam atrás da seta **◀** (mostrando o nome da pasta do dia). Os novos envios entram **no fim** da lista. Dias passados são **somente leitura** (sem botões de ação). O arquivo fica em `data/history.json`.
 
-O botão **Resetar** (com confirmação) reseta **o dia que está sendo exibido**, devolvendo cada publicação à sua origem: itens do Filtro Entre Contas voltam coloridos para a lista, itens que vieram da Fila de Espera voltam para a fila, e itens de link direto apenas liberam a pasta do dia (o link precisa ser colado de novo).
+O botão **Resetar** (com confirmação) só aparece na lista de **hoje** com envios: devolve cada publicação à sua origem — itens do Filtro Entre Contas voltam coloridos para a lista, itens que vieram da Fila de Espera voltam para a fila, e itens de link direto apenas liberam a pasta do dia (o link precisa ser colado de novo).
 
 ---
 

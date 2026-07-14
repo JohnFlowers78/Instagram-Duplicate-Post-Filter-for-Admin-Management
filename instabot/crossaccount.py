@@ -16,6 +16,8 @@ Persistido em cross_lists.json (dentro de DATA_DIR).
 """
 
 import json
+import re
+import unicodedata
 import uuid
 from datetime import datetime
 from pathlib import Path
@@ -211,3 +213,102 @@ def remove_item(list_id, item_id) -> None:
         return
     l["items"] = [it for it in l.get("items", []) if it["id"] != item_id]
     save(data)
+
+
+# ---------------------------------------------------------------------------
+# Filtros e ordenacao (logica pura — a UI so passa os parametros)
+# ---------------------------------------------------------------------------
+
+_DAY_RE = re.compile(r"[Dd][Ii][Aa]\s*_?\s*(\d+)")
+
+
+def day_number(item: dict):
+    """Numero do dia extraido do rotulo da pasta ('Dia20_...' → 20). None se nao tiver."""
+    m = _DAY_RE.search(item.get("folder") or "")
+    return int(m.group(1)) if m else None
+
+
+def _norm(s: str) -> str:
+    """Minusculas sem acentos, para comparacoes tolerantes (Comentar/COMENTAR/coménta...)."""
+    s = unicodedata.normalize("NFD", s or "")
+    return "".join(c for c in s if not unicodedata.combining(c)).casefold()
+
+
+def item_status(item: dict) -> str:
+    """'used' | 'duplicate' | 'available' (used tem prioridade sobre duplicate)."""
+    if item.get("used"):
+        return "used"
+    if item.get("duplicate"):
+        return "duplicate"
+    return "available"
+
+
+_CTA_ORDER = ["comentar", "seguir", "guardar", "link na bio"]
+
+
+def cta_sort_key(item: dict) -> tuple:
+    """Ordena por tipo de CTA (Comentar primeiro); sem CTA/pendentes por ultimo."""
+    c = _norm(item.get("cta") or "")
+    if not c or "nao detectada" in c or "indisponivel" in c:
+        return (len(_CTA_ORDER) + 1, "")
+    for i, t in enumerate(_CTA_ORDER):
+        if t in c:
+            return (i, c)
+    return (len(_CTA_ORDER), c)
+
+
+def filter_items(items: list, status: str = "all", cta: str = "all",
+                 trigger: str = "", day_min=None, day_max=None) -> list:
+    """Filtro combinavel (todas as condicoes valem ao mesmo tempo).
+
+    status : all | available | duplicate | used
+    cta    : all | none | trecho normalizado ('comentar', 'guardar', 'seguir', 'link na bio')
+    trigger: palavra-gatilho contida no CTA (ex.: 'RECETAS' acha 'Comentar RECETAS')
+    day_min/day_max: faixa do numero do dia (itens sem 'Dia N' ficam fora se houver faixa)
+    """
+    out = []
+    trig = _norm(trigger.strip()) if trigger else ""
+    for it in items:
+        if status != "all" and item_status(it) != status:
+            continue
+        c = _norm(it.get("cta") or "")
+        if cta == "none":
+            if c and "nao detectada" not in c and "indisponivel" not in c:
+                continue
+        elif cta != "all":
+            if cta not in c:
+                continue
+        if trig and trig not in c:
+            continue
+        if day_min is not None or day_max is not None:
+            d = day_number(it)
+            if d is None:
+                continue
+            if day_min is not None and d < day_min:
+                continue
+            if day_max is not None and d > day_max:
+                continue
+        out.append(it)
+    return out
+
+
+def sort_items(items: list, mode: str = "orig") -> list:
+    """Ordenacao estavel: empates preservam a ordem original da lista.
+
+    mode: orig | day_asc | day_desc | avail_first | gray_first | cta
+    """
+    if mode in ("day_asc", "day_desc"):
+        rev = (mode == "day_desc")
+        with_day = [it for it in items if day_number(it) is not None]
+        without = [it for it in items if day_number(it) is None]
+        with_day.sort(key=day_number, reverse=rev)
+        return with_day + without
+    if mode == "avail_first":
+        order = {"available": 0, "duplicate": 1, "used": 2}
+        return sorted(items, key=lambda it: order[item_status(it)])
+    if mode == "gray_first":
+        order = {"available": 1, "duplicate": 0, "used": 0}
+        return sorted(items, key=lambda it: order[item_status(it)])
+    if mode == "cta":
+        return sorted(items, key=cta_sort_key)
+    return list(items)

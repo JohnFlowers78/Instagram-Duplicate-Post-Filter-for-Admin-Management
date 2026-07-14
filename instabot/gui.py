@@ -5,6 +5,7 @@ import shutil
 import tempfile
 import threading
 import tkinter as tk
+import uuid
 import webbrowser
 from datetime import date, datetime
 from pathlib import Path
@@ -494,13 +495,17 @@ class App(tk.Tk):
             return
         if getattr(self, "_tab_active", "link") == "cross":
             self._q_title.config(text="LISTAS ENTRE CONTAS")
+            self._q_metrics_btn.pack_forget()
             if not self._q_controls.winfo_ismapped():
                 self._q_controls.pack(fill="x", after=self._q_hdr)
+            self._repair_cross_used_flags(crossaccount.get_active())
             self._populate_cross_combo()
             self._render_cross_list(reset_scroll=True)
             self._start_cross_ocr(crossaccount.get_active())
         else:
             self._q_title.config(text="FILA DE ESPERA")
+            if not self._q_metrics_btn.winfo_ismapped():
+                self._q_metrics_btn.pack(side="right")
             self._q_controls.pack_forget()
             self._reload_queue_panel()
 
@@ -526,8 +531,30 @@ class App(tk.Tk):
         idx = self._q_list_combo.current()
         if 0 <= idx < len(self._q_list_ids):
             crossaccount.set_active(self._q_list_ids[idx])
+            self._repair_cross_used_flags(self._q_list_ids[idx])
             self._render_cross_list(reset_scroll=True)
             self._start_cross_ocr(self._q_list_ids[idx])
+
+    def _repair_cross_used_flags(self, list_id: str):
+        """Auto-reparo: item marcado 'used' que NAO tem registro correspondente no
+        Historico (ex.: pelo bug de chave nao-unica) volta a ficar disponivel."""
+        if not list_id:
+            return
+        used_ids = {
+            (e.get("origin") or {}).get("item_id")
+            for e in _load_history() if (e.get("origin") or {}).get("origin") == "cross"
+        }
+        data = crossaccount.load()
+        lst = crossaccount.get_list(list_id, data)
+        if not lst:
+            return
+        changed = False
+        for it in lst.get("items", []):
+            if it.get("used") and it.get("id") not in used_ids:
+                it["used"] = False
+                changed = True
+        if changed:
+            crossaccount.save(data)
 
     def _render_cross_list(self, reset_scroll: bool = False):
         # Interrompe qualquer animacao da fila de links e limpa o inner
@@ -539,12 +566,26 @@ class App(tk.Tk):
         active = crossaccount.get_active()
         lst = crossaccount.get_list(active) if active else None
         self._cross_list_id = active
-        self._cross_items = list(lst.get("items")) if lst and lst.get("items") else []
-        if not self._cross_items:
+        all_items = list(lst.get("items")) if lst and lst.get("items") else []
+        self._cross_items = self._apply_cross_view(all_items)
+        if hasattr(self, "_cf_count_lbl"):
+            try:
+                self._cf_count_lbl.config(text=f"{len(self._cross_items)} de {len(all_items)}")
+            except tk.TclError:
+                pass
+        if not all_items:
             self._queue_inner.configure(height=80)
             tk.Label(
                 self._queue_inner,
                 text="Nenhuma lista.\nAnalise uma conta na aba\n'Filtro Entre Contas'.",
+                fg=TXT_M, font=FONT_B, bg=PANEL, wraplength=240, justify="center",
+            ).place(x=12, y=16)
+            return
+        if not self._cross_items:
+            self._queue_inner.configure(height=80)
+            tk.Label(
+                self._queue_inner,
+                text="Nenhuma publicação passa\nnos filtros atuais.",
                 fg=TXT_M, font=FONT_B, bg=PANEL, wraplength=240, justify="center",
             ).place(x=12, y=16)
             return
@@ -554,6 +595,98 @@ class App(tk.Tk):
         if reset_scroll:
             self._queue_canvas.yview_moveto(0)
         self._cross_virtual_update()
+
+    # --- Filtros e ordenacao da lista (a logica fica em crossaccount) ---
+
+    _CF_SORT_MAP = {
+        "Ordem original": "orig",
+        "Dia ↑ (antigas primeiro)": "day_asc",
+        "Dia ↓ (recentes primeiro)": "day_desc",
+        "Disponíveis primeiro": "avail_first",
+        "Repetidas/utilizadas primeiro": "gray_first",
+        "CTA (Comentar primeiro)": "cta",
+    }
+    _CF_STATUS_MAP = {
+        "Todas": "all",
+        "Disponíveis": "available",
+        "Repetidas": "duplicate",
+        "Já utilizadas": "used",
+    }
+    _CF_CTA_MAP = {
+        "Todos": "all",
+        "Comentar": "comentar",
+        "Guardar": "guardar",
+        "Seguir": "seguir",
+        "Link na bio": "link na bio",
+        "Sem CTA": "none",
+    }
+
+    def _cf_day_bound(self, var) -> "int | None":
+        try:
+            v = var.get().strip()
+            return int(v) if v else None
+        except (ValueError, tk.TclError):
+            return None
+
+    def _apply_cross_view(self, items: list) -> list:
+        """Aplica os filtros combinados + ordenacao escolhidos na barra do painel."""
+        if not hasattr(self, "_cf_sort"):
+            return list(items)
+        view = crossaccount.filter_items(
+            items,
+            status=self._CF_STATUS_MAP.get(self._cf_status.get(), "all"),
+            cta=self._CF_CTA_MAP.get(self._cf_cta.get(), "all"),
+            trigger=self._cf_trigger.get(),
+            day_min=self._cf_day_bound(self._cf_day_min),
+            day_max=self._cf_day_bound(self._cf_day_max),
+        )
+        return crossaccount.sort_items(
+            view, self._CF_SORT_MAP.get(self._cf_sort.get(), "orig")
+        )
+
+    def _cross_view_uses_cta(self) -> bool:
+        if not hasattr(self, "_cf_cta"):
+            return False
+        return (
+            self._cf_cta.get() != "Todos"
+            or bool(self._cf_trigger.get().strip())
+            or self._CF_SORT_MAP.get(self._cf_sort.get()) == "cta"
+        )
+
+    def _schedule_cross_rerender(self):
+        """Re-render coalescido (1 apos a rajada) — evita piscar durante o OCR."""
+        if getattr(self, "_cross_rr_after", None):
+            try:
+                self.after_cancel(self._cross_rr_after)
+            except Exception:
+                pass
+        def fire():
+            self._cross_rr_after = None
+            if getattr(self, "_tab_active", "") == "cross":
+                self._render_cross_list()
+        self._cross_rr_after = self.after(1000, fire)
+
+    def _on_cross_filter_change(self, event=None):
+        if getattr(self, "_tab_active", "") == "cross":
+            self._render_cross_list(reset_scroll=True)
+
+    def _on_cross_filter_typed(self, event=None):
+        """Campos digitados (gatilho/dias): aplica com debounce de 350ms."""
+        if getattr(self, "_cf_typed_after", None):
+            try:
+                self.after_cancel(self._cf_typed_after)
+            except Exception:
+                pass
+        self._cf_typed_after = self.after(350, self._on_cross_filter_change)
+
+    def _clear_cross_filters(self):
+        self._cf_sort.set("Ordem original")
+        self._cf_status.set("Todas")
+        self._cf_cta.set("Todos")
+        self._cf_trigger.set("")
+        self._cf_day_min.set("")
+        self._cf_day_max.set("")
+        self._on_cross_filter_change()
 
     def _cross_virtual_update(self):
         """Cria apenas os cartoes na area visivel (+ overscan) e destroi os que sairam."""
@@ -606,18 +739,38 @@ class App(tk.Tk):
                 return 1
             return 0  # disponiveis primeiro
 
-        pend = sorted(
-            [it for it in lst.get("items", []) if not it.get("cta")], key=prio
+        items = lst.get("items", [])
+        done = sum(1 for it in items if it.get("cta"))
+        pend = sorted([it for it in items if not it.get("cta")], key=prio)
+        if not pend:
+            return  # tudo analisado — sem barulho no LOG a cada troca de aba
+
+        n_avail = sum(1 for it in pend if prio(it) == 0)
+        n_gray = len(pend) - n_avail
+        self._cross_log(
+            f"CTA: {done} já analisada(s) · {len(pend)} pendente(s) — "
+            f"{n_avail} disponível(is) primeiro, depois {n_gray} repetida(s)/utilizada(s)."
         )
-        for it in pend:
+        gray_started = False
+        for i, it in enumerate(pend, start=1):
             if gen != getattr(self, "_cross_ocr_gen", gen):
                 return  # cancelado (troca de lista / novo import / fechou)
+            if not gray_started and prio(it) > 0:
+                gray_started = True
+                self._cross_log("CTA: disponíveis concluídas — agora as repetidas/já utilizadas…")
+            status = ("já utilizada" if it.get("used")
+                      else "repetida" if it.get("duplicate") else "disponível")
+            label = it.get("folder") or "?"
+            self._cross_log(f"  CTA {i}/{len(pend)}: analisando [{label}] ({status})…")
             try:
                 result = cta.detect_cta(crossaccount.item_images(it))
             except Exception:
                 result = "não detectada"
             crossaccount.set_item_field(list_id, it["id"], "cta", result)
+            self._cross_log(f"  CTA {i}/{len(pend)}: [{label}] → {result}")
             self.after(0, lambda iid=it["id"], c=result: self._apply_cta(iid, c))
+        if gen == getattr(self, "_cross_ocr_gen", gen):
+            self._cross_log("CTA: análise concluída ✔")
 
     def _apply_cta(self, item_id: str, cta_text: str):
         """Atualiza SO o item que mudou (reativo): mexe no dado em memoria e, se o
@@ -640,6 +793,10 @@ class App(tk.Tk):
                 lbl.config(text=f"CTA: {cta_text}", fg=(ACCENT if good else TXT_M))
             except Exception:
                 pass
+        # Se a visao atual depende do CTA (filtro/gatilho/ordem), o item pode entrar
+        # ou sair da lista — re-render coalescido para nao piscar a cada deteccao.
+        if self._cross_view_uses_cta():
+            self._schedule_cross_rerender()
 
     def _build_cross_row(self, list_id: str, item: dict):
         gray = bool(item.get("used")) or bool(item.get("duplicate"))
@@ -679,8 +836,13 @@ class App(tk.Tk):
                      font=FONT_S, bg=PANEL, fg=BDF).pack(fill="x")
         elif item.get("duplicate"):
             loc = item.get("dup_location", "")
-            txt = f"Repetida — em {loc}" if loc else "Repetida (já no destino)"
+            base = "Repetida (manual)" if item.get("manual") == "dup" else "Repetida"
+            txt = f"{base} — em {loc}" if loc else (
+                base if item.get("manual") == "dup" else "Repetida (já no destino)")
             tk.Label(info, text=txt, anchor="w", font=FONT_S, bg=PANEL, fg=BDF).pack(fill="x")
+        elif item.get("manual") == "ok":
+            tk.Label(info, text="✓ Verificada não repetida (manual)", anchor="w",
+                     font=FONT_S, bg=PANEL, fg=ACCENT).pack(fill="x")
 
         # Linha de CTA (preenchida em segundo plano pelo OCR; atualizada em tempo real)
         cta_txt = item.get("cta")
@@ -710,10 +872,111 @@ class App(tk.Tk):
                   lambda: self._remove_cross_item(list_id, item["id"]), "danger_sm").pack(side="right")
         self._btn(btns, "📁", lambda p=item.get("src_path", ""): self._open_folder(p),
                   "secondary_sm").pack(side="right", padx=(0, 4))
-        if not gray:
-            self._btn(btns, "Utilizar de Próxima",
-                      lambda: self._use_cross_item(list_id, item["id"]), "green_sm").pack(side="left")
+        # Marcacao manual: quando o filtro nao reconhece sozinho (ex.: Card Final
+        # refeito), o usuario marca/desmarca a repetida na mao. Usados nao mudam.
+        if not item.get("used"):
+            if item.get("duplicate"):
+                self._btn(btns, "Não é Repetida",
+                          lambda: self._mark_cross_not_dup(list_id, item["id"]),
+                          "secondary_sm").pack(side="left")
+            else:
+                self._btn(btns, "Utilizar de Próxima",
+                          lambda: self._use_cross_item(list_id, item["id"]), "green_sm").pack(side="left")
+                self._btn(btns, "É Repetida",
+                          lambda: self._mark_cross_dup(list_id, item["id"]),
+                          "secondary_sm").pack(side="left", padx=(4, 0))
         return row_outer
+
+    def _mark_cross_dup(self, list_id: str, item_id: str):
+        """Marca manualmente como repetida, com pasta/dia opcional de onde ja existe."""
+        loc = self._ask_dup_location()
+        if loc is None:
+            return  # cancelou
+        data = crossaccount.load()
+        it = crossaccount.find_item(list_id, item_id, data)
+        if it is None:
+            return
+        it["duplicate"] = True
+        it["dup_location"] = loc
+        it["manual"] = "dup"
+        crossaccount.save(data)
+        self._render_cross_list()
+        self._show_toast("Marcada como repetida (manual).", 3000, OK_BG, OK_FG)
+
+    def _mark_cross_not_dup(self, list_id: str, item_id: str):
+        """Desmarca a repetida: volta a ficar disponível e o Recarregar respeita."""
+        data = crossaccount.load()
+        it = crossaccount.find_item(list_id, item_id, data)
+        if it is None:
+            return
+        it["duplicate"] = False
+        it["dup_location"] = ""
+        it["manual"] = "ok"
+        crossaccount.save(data)
+        self._render_cross_list()
+        self._show_toast("Marcada como disponível (manual).", 3000, OK_BG, OK_FG)
+
+    def _day_folder_names(self) -> list:
+        """Nomes das pastas de dia da Pasta de Destino, mais recentes primeiro."""
+        db = self.cfg.get("db_folder")
+        names = []
+        if db and Path(db).is_dir():
+            try:
+                for d in Path(db).iterdir():
+                    if d.is_dir() and organizer.DIA_FOLDER_RE.match(d.name):
+                        names.append(d.name)
+            except OSError:
+                pass
+
+        def daynum(n):
+            m = re.match(r"Dia(\d+)_", n)
+            return int(m.group(1)) if m else 0
+
+        names.sort(key=daynum, reverse=True)
+        return names
+
+    def _ask_dup_location(self):
+        """Dialog opcional: em qual pasta/dia a repetida ja existe.
+        Retorna a pasta escolhida/digitada ('' = nao informada) ou None se cancelar."""
+        result = [None]
+
+        dlg = tk.Toplevel(self)
+        dlg.title("Marcar como Repetida")
+        dlg.resizable(False, False)
+        dlg.transient(self)
+        dlg.grab_set()
+        dlg.attributes("-topmost", True)
+        dlg.configure(bg=PANEL)
+
+        tk.Label(
+            dlg, text="Se souber, indique a pasta/dia onde essa publicação\n"
+                      "já existe (opcional — pode deixar em branco):",
+            bg=PANEL, fg=TXT_B, font=FONT_B, justify="center", padx=24, pady=(18),
+        ).pack()
+        combo = ttk.Combobox(dlg, values=self._day_folder_names(), font=FONT_B)
+        combo.pack(fill="x", padx=28, pady=(0, 14), ipady=3)
+
+        btn_row = tk.Frame(dlg, bg=PANEL)
+        btn_row.pack(pady=(0, 18))
+
+        def do_cancel():
+            dlg.destroy()
+
+        def do_confirm():
+            result[0] = combo.get().strip()
+            dlg.destroy()
+
+        self._btn(btn_row, "CANCELAR", do_cancel, "secondary").pack(side="left", padx=(0, 10))
+        self._btn(btn_row, "MARCAR REPETIDA", do_confirm, "danger").pack(side="left")
+
+        self.update_idletasks()
+        dlg.update_idletasks()
+        w, h = 400, 190
+        x = self.winfo_x() + (self.winfo_width() - w) // 2
+        y = self.winfo_y() + (self.winfo_height() - h) // 2
+        dlg.geometry(f"{w}x{h}+{x}+{y}")
+        dlg.wait_window()
+        return result[0]
 
     def _use_cross_item(self, list_id: str, item_id: str):
         db = self.cfg.get("db_folder")
@@ -737,7 +1000,9 @@ class App(tk.Tk):
         if slot is None:
             self._show_toast(f"Não há pasta livre hoje em '{day_folder.name}'.", 4000, ERR_BG, ERR_FG)
             return
-        organizer.save_media_to_slot(slot, images)
+        # cache_hashes=False: o Card Final ainda vai ser refeito (IA) — os hashes
+        # da pasta de destino sao recalculados depois, a partir das imagens reais.
+        organizer.save_media_to_slot(slot, images, cache_hashes=False)
         # A legenda viaja junto: grava no Legenda.txt da pasta de destino
         caption = (item.get("caption") or "").strip()
         if caption:
@@ -804,9 +1069,14 @@ class App(tk.Tk):
             if lst is None:
                 return
             name = lst.get("name", "")
-            avail = [it for it in lst.get("items", []) if not it.get("used")]
+            not_used = [it for it in lst.get("items", []) if not it.get("used")]
+            # Marcacoes manuais (É/Não é Repetida) nao sao sobrescritas pelo Recarregar
+            manual_kept = [it for it in not_used if it.get("manual")]
+            avail = [it for it in not_used if not it.get("manual")]
             total = len(avail)
-            self._cross_log(f"Recarregando a lista '{name}' — reanalisando {total} disponível(is)...")
+            self._cross_log(f"Recarregando a lista '{name}' — reanalisando {total} item(ns)...")
+            if manual_kept:
+                self._cross_log(f"  {len(manual_kept)} marcação(ões) manual(is) preservada(s).")
             threshold = self.cfg.get("hash_threshold", 5)
             dest_index = dedup.build_post_index(db_folder)
             changed = 0
@@ -1216,6 +1486,19 @@ class App(tk.Tk):
             font=FONT_M, bg=PANEL, fg=TXT_M,
         ).pack(side="left")
 
+        purge_row = tk.Frame(card3, bg=PANEL)
+        purge_row.pack(fill="x", pady=(12, 0))
+        tk.Label(
+            purge_row,
+            text="Trocou muitos Cards Finais? Apague os caches: os hashes de todas as "
+                 "pastas da Pasta de Destino serão recalculados das imagens atuais.",
+            font=FONT_S, bg=PANEL, fg=TXT_M, anchor="w", wraplength=350, justify="left",
+        ).pack(side="left", fill="x", expand=True)
+        self.btn_purge_hashes = self._btn(
+            purge_row, "Apagar caches de hash", self._purge_hash_caches, "secondary"
+        )
+        self.btn_purge_hashes.pack(side="right", padx=(10, 0))
+
         # Card: aparencia (tema claro / escuro)
         outer4, card4 = self._make_card(page, "Aparência")
         outer4.pack(fill="x", **PAD)
@@ -1388,6 +1671,37 @@ class App(tk.Tk):
         if folder:
             self._src_folder = folder
             self._refresh_src_folder_label()
+
+    def _purge_hash_caches(self):
+        """Apaga todos os .hashes.json da Pasta de Destino (recursivo), com confirmação."""
+        db = self.cfg.get("db_folder")
+        if not db or not Path(db).is_dir():
+            self._show_toast("Selecione a Pasta de Destino primeiro.", 4000, ERR_BG, ERR_FG)
+            return
+        if not self._confirm_dialog(
+            "Apagar caches de hash",
+            "Todos os arquivos .hashes.json dentro da Pasta de Destino serão apagados.\n"
+            "Os hashes serão recalculados das imagens reais na próxima comparação "
+            "(a primeira ficará um pouco mais lenta). Continuar?",
+        ):
+            return
+        try:
+            self.btn_purge_hashes.config(state="disabled")
+        except tk.TclError:
+            pass
+
+        def worker(root=Path(db)):
+            n = dedup.purge_hash_caches(root)
+
+            def fin():
+                try:
+                    self.btn_purge_hashes.config(state="normal")
+                except tk.TclError:
+                    pass
+                self._show_toast(f"{n} cache(s) de hash apagado(s).", 4000, OK_BG, OK_FG)
+            self.after(0, fin)
+
+        threading.Thread(target=worker, daemon=True).start()
 
     def start_cross_import(self):
         src = getattr(self, "_src_folder", "")
@@ -1742,11 +2056,17 @@ class App(tk.Tk):
 
     def _delete_history_entry(self, entry: dict):
         entries = _load_history()
-        new_entries = [
-            e for e in entries
-            if not (e.get("url") == entry.get("url") and
-                    e.get("save_datetime") == entry.get("save_datetime"))
-        ]
+        eid = entry.get("id")
+        if eid:
+            new_entries = [e for e in entries if e.get("id") != eid]
+        else:
+            # registros antigos sem id: casa por url + data + PASTA (a pasta e unica por slot)
+            new_entries = [
+                e for e in entries
+                if not (e.get("url") == entry.get("url")
+                        and e.get("save_datetime") == entry.get("save_datetime")
+                        and e.get("folder") == entry.get("folder"))
+            ]
         _save_history(new_entries)
         self._reload_history_panel()
 
@@ -1938,14 +2258,66 @@ class App(tk.Tk):
         self.clipboard_append(text)
         self._show_toast("Copiado!", 3000, OK_BG, OK_FG)
 
+    def _empty_slot(self, slot):
+        """Apaga as imagens numeradas e o cache de hashes de um slot (mantém a Legenda)."""
+        if not slot or not slot.is_dir():
+            return
+        for img in dedup._sorted_numbered_images(slot):
+            try:
+                img.unlink()
+            except Exception:
+                pass
+        cache = slot / dedup._HASH_CACHE
+        if cache.exists():
+            try:
+                cache.unlink()
+            except Exception:
+                pass
+
     def _reset_history(self):
+        """Reseta o DIA que está sendo visto, devolvendo cada publicação à sua origem:
+        cross → volta pra lista Entre Contas; link da fila → volta pra Fila de Espera;
+        link direto → só esvazia a pasta (o usuário cola o link de novo)."""
+        groups = self._hist_day_groups(_load_history())
+        if not groups:
+            return
+        page = max(0, min(getattr(self, "_hist_page", 0), len(groups) - 1))
+        day_label, page_entries = groups[page]
+        if not page_entries:
+            return
         if not self._confirm_dialog(
-            "Resetar Histórico",
-            "Deseja realmente apagar todo o histórico de envios?\n\nEsta ação não pode ser desfeita.",
+            "Resetar o dia",
+            f"Devolver as {len(page_entries)} publicação(ões) de \"{day_label}\" às suas filas "
+            f"de origem e limpar este dia do histórico?\n\n"
+            f"As que vieram por link direto NÃO voltam para nenhuma fila — você cola o link de novo.",
         ):
             return
-        _save_history([])
+
+        db = self.cfg.get("db_folder")
+
+        def key(e):
+            return e.get("id") or (e.get("url"), e.get("save_datetime"), e.get("folder"))
+
+        for entry in page_entries:
+            origin = entry.get("origin") or {}
+            kind = origin.get("origin")
+            slot = (Path(db) / entry.get("folder", "")) if db and entry.get("folder") else None
+            images = dedup._sorted_numbered_images(slot) if (slot and slot.is_dir()) else []
+            if kind == "cross":
+                crossaccount.set_item_field(origin.get("list_id", ""),
+                                            origin.get("item_id", ""), "used", False)
+                self._empty_slot(slot)
+            elif kind == "link":
+                if origin.get("from") == "queue" and images:
+                    waitqueue.add_to_queue(entry.get("url", ""), images, entry.get("meta", {}))
+                self._empty_slot(slot)  # link direto: só esvazia; usuário recola o link
+
+        remove = {key(e) for e in page_entries}
+        remaining = [e for e in _load_history() if key(e) not in remove]
+        _save_history(remaining)
         self._reload_history_panel()
+        self._refresh_queue_panel_context()
+        self._show_toast("Dia resetado — publicações devolvidas às filas.", 3500, OK_BG, OK_FG)
 
     # ------------------------------------------------------------------
     # Painel da fila de espera
@@ -1975,6 +2347,12 @@ class App(tk.Tk):
             font=FONT_LBL, bg=BG, fg=TXT_M, anchor="w",
         )
         self._q_title.pack(side="left")
+        # Atualizar likes/comentarios da fila via bot (so aparece no modo Filtro
+        # por Link — o pack/pack_forget fica em _refresh_queue_panel_context)
+        self._q_metrics_btn = self._btn(
+            self._q_hdr, "↻ Métricas", self._refresh_queue_metrics, "secondary_sm"
+        )
+        self._q_metrics_btn.pack(side="right")
 
         # Controles do modo 'Entre Contas' (seletor de lista + Recarregar).
         # Ficam ocultos no modo Filtro por Link.
@@ -1989,6 +2367,66 @@ class App(tk.Tk):
         self._btn(self._q_controls, "↻  Recarregar", self._refresh_cross_list, "secondary_sm").pack(
             fill="x", padx=12, pady=(6, 2)
         )
+
+        # --- Barra de filtros / ordenacao (modo Entre Contas) ---
+        if not hasattr(self, "_cf_sort"):
+            # As StringVars pertencem a raiz Tk: sobrevivem ao rebuild de tema
+            self._cf_sort = tk.StringVar(value="Ordem original")
+            self._cf_status = tk.StringVar(value="Todas")
+            self._cf_cta = tk.StringVar(value="Todos")
+            self._cf_trigger = tk.StringVar(value="")
+            self._cf_day_min = tk.StringVar(value="")
+            self._cf_day_max = tk.StringVar(value="")
+        fbar = tk.Frame(self._q_controls, bg=BG)
+        fbar.pack(fill="x", padx=12, pady=(4, 2))
+        fbar.columnconfigure(1, weight=1)
+        fbar.columnconfigure(3, weight=1)
+
+        def _flbl(r, c, text):
+            tk.Label(fbar, text=text, font=FONT_S, bg=BG, fg=TXT_M, anchor="w").grid(
+                row=r, column=c, sticky="w", padx=(0, 3)
+            )
+
+        _flbl(0, 0, "Ordenar:")
+        cb_sort = ttk.Combobox(fbar, textvariable=self._cf_sort, state="readonly",
+                               font=FONT_S, values=list(self._CF_SORT_MAP.keys()))
+        cb_sort.grid(row=0, column=1, columnspan=3, sticky="we", pady=1)
+        _flbl(1, 0, "Status:")
+        cb_status = ttk.Combobox(fbar, textvariable=self._cf_status, state="readonly",
+                                 font=FONT_S, values=list(self._CF_STATUS_MAP.keys()), width=9)
+        cb_status.grid(row=1, column=1, sticky="we", pady=1, padx=(0, 4))
+        _flbl(1, 2, "CTA:")
+        cb_cta = ttk.Combobox(fbar, textvariable=self._cf_cta, state="readonly",
+                              font=FONT_S, values=list(self._CF_CTA_MAP.keys()), width=9)
+        cb_cta.grid(row=1, column=3, sticky="we", pady=1)
+        _flbl(2, 0, "Gatilho:")
+        en_trig = tk.Entry(fbar, textvariable=self._cf_trigger, font=FONT_S, width=9,
+                           bg=INNER, fg=TXT_H, insertbackground=TXT_H, relief="flat", bd=0)
+        en_trig.grid(row=2, column=1, sticky="we", pady=1, padx=(0, 4), ipady=2)
+        _flbl(2, 2, "Dia:")
+        day_wrap = tk.Frame(fbar, bg=BG)
+        day_wrap.grid(row=2, column=3, sticky="we")
+        vcmd_day = (self.register(lambda v: v == "" or (v.isdigit() and len(v) <= 3)), "%P")
+        en_dmin = tk.Entry(day_wrap, textvariable=self._cf_day_min, font=FONT_S, width=4,
+                           justify="center", bg=INNER, fg=TXT_H, insertbackground=TXT_H,
+                           relief="flat", bd=0, validate="key", validatecommand=vcmd_day)
+        en_dmin.pack(side="left", ipady=2)
+        tk.Label(day_wrap, text="a", font=FONT_S, bg=BG, fg=TXT_M).pack(side="left", padx=3)
+        en_dmax = tk.Entry(day_wrap, textvariable=self._cf_day_max, font=FONT_S, width=4,
+                           justify="center", bg=INNER, fg=TXT_H, insertbackground=TXT_H,
+                           relief="flat", bd=0, validate="key", validatecommand=vcmd_day)
+        en_dmax.pack(side="left", ipady=2)
+
+        ffoot = tk.Frame(fbar, bg=BG)
+        ffoot.grid(row=3, column=0, columnspan=4, sticky="we", pady=(3, 0))
+        self._btn(ffoot, "Limpar filtros", self._clear_cross_filters, "secondary_sm").pack(side="left")
+        self._cf_count_lbl = tk.Label(ffoot, text="", font=FONT_S, bg=BG, fg=TXT_M)
+        self._cf_count_lbl.pack(side="right")
+
+        for cb in (cb_sort, cb_status, cb_cta):
+            cb.bind("<<ComboboxSelected>>", self._on_cross_filter_change)
+        for en in (en_trig, en_dmin, en_dmax):
+            en.bind("<KeyRelease>", self._on_cross_filter_typed)
 
         q_outer = tk.Frame(content, bg=BORDER, padx=1, pady=1)
         q_outer.pack(fill="both", expand=True, padx=12, pady=(0, 12))
@@ -2120,16 +2558,19 @@ class App(tk.Tk):
         meta = entry.get("meta", {})
         meta_row = tk.Frame(info, bg=PANEL)
         meta_row.pack(fill="x", pady=(2, 0))
+        row_outer._meta_labels = {}   # p/ atualizar so estes rotulos no ↻ Métricas
         for ico, key in [
             (self._ico_eye, "views"),
             (self._ico_heart, "likes"),
             (self._ico_bubble, "comments"),
         ]:
             tk.Label(meta_row, image=ico, bg=PANEL).pack(side="left", padx=(0, 2))
-            tk.Label(
+            val_lbl = tk.Label(
                 meta_row, text=meta.get(key, "N/D"),
                 font=FONT_M, bg=PANEL, fg=TXT_B, anchor="w",
-            ).pack(side="left", padx=(0, 8))
+            )
+            val_lbl.pack(side="left", padx=(0, 8))
+            row_outer._meta_labels[key] = val_lbl
         post_date = meta.get("post_date", "N/D")
         if post_date and post_date != "N/D":
             tk.Label(
@@ -2202,7 +2643,8 @@ class App(tk.Tk):
             return
 
         organizer.save_media_to_slot(slot, images)
-        self._record_history(entry.get("url", ""), slot, entry.get("meta", {}))
+        self._record_history(entry.get("url", ""), slot, entry.get("meta", {}),
+                             origin={"origin": "link", "from": "queue"})
         waitqueue.remove_from_queue(entry.get("id", ""))
         self._reload_queue_panel()
         slot_label = str(slot.relative_to(db_folder))
@@ -2212,6 +2654,93 @@ class App(tk.Tk):
         waitqueue.remove_from_queue(entry.get("id", ""))
         self._reload_queue_panel()
         self._show_toast("Removido da fila de espera.", 3000, ERR_BG, ERR_FG)
+
+    # ------------------------------------------------------------------
+    # Fila: atualizar curtidas/comentarios via bot (link por link)
+    # ------------------------------------------------------------------
+
+    def _refresh_queue_metrics(self):
+        """Abre o navegador e visita cada link da fila para recapturar as metricas.
+        Pede confirmacao antes — o sistema fica ocupado durante o processo."""
+        if getattr(self, "_metrics_busy", False):
+            return
+        if str(self.btn_start["state"]) == "disabled":
+            self._show_toast("Aguarde o processo atual terminar.", 4000, ERR_BG, ERR_FG)
+            return
+        pairs = [(e.get("id", ""), e.get("url", ""))
+                 for e in waitqueue.load_queue() if e.get("url")]
+        if not pairs:
+            self._show_toast("A fila não tem publicações com link.", 4000, ERR_BG, ERR_FG)
+            return
+        if not self._confirm_dialog(
+            "Atualizar métricas da fila",
+            f"O navegador será aberto e visitará {len(pairs)} publicação(ões), uma por uma, "
+            "para atualizar curtidas e comentários.\n"
+            "O sistema ficará ocupado durante o processo. Continuar?",
+        ):
+            return
+        self._metrics_busy = True
+        try:
+            self._q_metrics_btn.config(state="disabled", text="↻ Atualizando…")
+        except tk.TclError:
+            pass
+        self._log_async(f"Atualizando curtidas/comentários de {len(pairs)} publicação(ões) da fila…")
+        threading.Thread(target=self._run_queue_metrics, args=(pairs,), daemon=True).start()
+
+    def _run_queue_metrics(self, pairs: list):
+        ids = [i for i, _ in pairs]
+        urls = [u for _, u in pairs]
+        updated = [0]
+
+        def on_meta(i, url, meta):
+            if not meta or all(v in ("", "N/D", None) for v in meta.values()):
+                self._log_async(f"  {i + 1}/{len(urls)}: não foi possível capturar (login?) — valores mantidos")
+                return
+            entries = waitqueue.load_queue()   # recarrega: a fila pode ter mudado no meio
+            for e in entries:
+                if e.get("id") == ids[i]:
+                    m = e.setdefault("meta", {})
+                    for k, v in meta.items():
+                        if v and v != "N/D":   # falha pontual nao apaga valor antigo
+                            m[k] = v
+                    waitqueue.save_queue(entries)
+                    updated[0] += 1
+                    self._log_async(
+                        f"  {i + 1}/{len(urls)}: curtidas {m.get('likes', 'N/D')} · "
+                        f"comentários {m.get('comments', 'N/D')}"
+                    )
+                    self.after(0, lambda eid=e["id"], mm=dict(m): self._apply_queue_meta(eid, mm))
+                    return
+            self._log_async(f"  {i + 1}/{len(urls)}: item saiu da fila — ignorado")
+
+        try:
+            downloader.fetch_meta_batch(urls, progress_cb=self._log_async, on_meta=on_meta)
+            self._log_async(f"Métricas atualizadas: {updated[0]} de {len(urls)}.")
+        except Exception as exc:
+            self._log_async(f"ERRO ao atualizar métricas: {exc}")
+        finally:
+            self._metrics_busy = False
+
+            def fin():
+                try:
+                    self._q_metrics_btn.config(state="normal", text="↻ Métricas")
+                except tk.TclError:
+                    pass
+                if getattr(self, "_tab_active", "link") == "link":
+                    self._reload_queue_panel()
+            self.after(0, fin)
+
+    def _apply_queue_meta(self, entry_id: str, meta: dict):
+        """Reativo: reconfigura so os rotulos de metricas do cartao daquele item."""
+        for st in getattr(self, "_q_state", []):
+            if st.get("id") == entry_id:
+                labels = getattr(st.get("frame"), "_meta_labels", None) or {}
+                for k, lbl in labels.items():
+                    try:
+                        lbl.config(text=meta.get(k, "N/D"))
+                    except tk.TclError:
+                        pass
+                return
 
     # ------------------------------------------------------------------
     # Fila: posicionamento e arraste suave (estilo edicao de playlist)
@@ -2454,12 +2983,13 @@ class App(tk.Tk):
 
         default_meta = {"views": "N/D", "likes": "N/D", "comments": "N/D", "post_date": "N/D"}
         entry = {
+            "id": uuid.uuid4().hex,   # identidade unica (evita apagar itens irmaos)
             "url": url,
             "save_datetime": datetime.now().strftime("%d/%m/%Y %H:%M"),
             "folder": folder_label,
             "thumbnail": thumb_path,
             "meta": {**default_meta, **(ig_meta or {})},
-            "origin": origin or {"origin": "link"},
+            "origin": origin or {"origin": "link", "from": "direct"},
         }
         entries = _load_history()
         entries.append(entry)   # novos entram no fim (timeline: mais recentes embaixo)
@@ -2496,6 +3026,9 @@ class App(tk.Tk):
         return decision[0] == "save"
 
     def start_pipeline(self):
+        if getattr(self, "_metrics_busy", False):
+            self._show_result_popup(False, "Aguarde a atualização de métricas da fila terminar.")
+            return
         link = self.entry_link.get().strip()
         if not link:
             self._show_result_popup(False, "Cole o link da publicação do Instagram antes de iniciar.")

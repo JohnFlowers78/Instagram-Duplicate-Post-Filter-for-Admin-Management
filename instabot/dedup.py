@@ -27,30 +27,49 @@ def _sorted_numbered_images(folder: Path) -> list[Path]:
     return files
 
 
+def _folder_signature(files: list[Path]) -> dict:
+    """Assinatura das imagens da pasta: {nome: [tamanho, mtime_ns]}."""
+    sig = {}
+    for f in files:
+        try:
+            st = f.stat()
+            sig[f.name] = [st.st_size, st.st_mtime_ns]
+        except OSError:
+            sig[f.name] = [0, 0]
+    return sig
+
+
 def get_all_hashes(folder: Path) -> list[imagehash.ImageHash]:
     """Hashes de TODAS as imagens de uma pasta, com cache em .hashes.json.
 
-    Na primeira vez: computa via phash e salva o cache.
-    Nas proximas vezes: carrega do cache instantaneamente (sem reabrir as imagens).
-    O cache so fica desatualizado se as imagens forem trocadas manualmente — nesse
-    caso basta apagar o arquivo .hashes.json dentro do slot para forcar recomputo.
+    O cache guarda a assinatura (nome, tamanho e data de modificacao) de cada
+    imagem: se QUALQUER arquivo for trocado — ex.: Card Final refeito por IA —
+    a assinatura muda e os hashes sao recalculados sozinhos. Caches no formato
+    antigo (lista simples, sem assinatura) tambem sao recomputados.
     """
+    files = _sorted_numbered_images(folder)
     cache_file = folder / _HASH_CACHE
+    if not files:
+        cache_file.unlink(missing_ok=True)  # pasta sem imagens: cache orfao
+        return []
+
+    sig = _folder_signature(files)
     if cache_file.exists():
         try:
             data = json.loads(cache_file.read_text(encoding="utf-8"))
-            if isinstance(data, list) and data:
-                actual = _sorted_numbered_images(folder)
-                if not actual:
-                    cache_file.unlink(missing_ok=True)  # Pasta sem imagens
-                elif len(data) == len(actual):  # Cache completo e valido
-                    return [imagehash.hex_to_hash(h) for h in data]
-                # len(data) != len(actual): cache desatualizado → recomputa e sobrescreve
+            if (
+                isinstance(data, dict)
+                and data.get("files") == sig
+                and isinstance(data.get("hashes"), list)
+                and data["hashes"]
+            ):
+                return [imagehash.hex_to_hash(h) for h in data["hashes"]]
+            # assinatura diferente ou formato antigo → recomputa e sobrescreve
         except Exception:
             pass
 
     hashes = []
-    for f in _sorted_numbered_images(folder):
+    for f in files:
         h = hash_image(f)
         if h is not None:
             hashes.append(h)
@@ -58,12 +77,30 @@ def get_all_hashes(folder: Path) -> list[imagehash.ImageHash]:
     if hashes:
         try:
             cache_file.write_text(
-                json.dumps([str(h) for h in hashes]), encoding="utf-8"
+                json.dumps({"files": sig, "hashes": [str(h) for h in hashes]}),
+                encoding="utf-8",
             )
         except Exception:
             pass
 
     return hashes
+
+
+def purge_hash_caches(root: Path) -> int:
+    """Apaga TODOS os .hashes.json dentro de root (recursivo).
+
+    Usar depois de trocar muitos Cards Finais: os hashes de todas as pastas
+    serao recalculados a partir das imagens reais na proxima comparacao.
+    Retorna quantos arquivos foram apagados.
+    """
+    count = 0
+    for f in Path(root).rglob(_HASH_CACHE):
+        try:
+            f.unlink()
+            count += 1
+        except OSError:
+            pass
+    return count
 
 
 def hashes_from_hex(hex_list) -> list[imagehash.ImageHash]:

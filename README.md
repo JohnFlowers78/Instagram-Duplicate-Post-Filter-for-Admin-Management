@@ -21,6 +21,8 @@ Analisa a pasta **inteira de outra conta** e monta listas reutilizáveis: cada p
 
 Tem também **tema claro/escuro**, **Fila de Espera** reordenável por arraste, **Histórico** navegável por dia (timeline) e painéis redimensionáveis.
 
+> 💡 Observações de operação e ideias futuras ficam registradas no [IDEIAS.md](IDEIAS.md) — documento vivo que acompanha o desenvolvimento.
+
 ---
 
 ## Pré-requisitos
@@ -131,6 +133,7 @@ Publicações adicionadas à Fila de Espera são **baixadas e estacionadas** par
 - **Utilizar de Próxima** (verde): manda a publicação para a próxima pasta livre do dia e a remove da fila. Se não houver pasta livre, um aviso flutuante aparece por alguns segundos.
 - **Remover da Espera** (vermelho): tira da fila e apaga as imagens estacionadas (libera espaço).
 - **Reordenar**: arraste pela alça **⠿** (canto superior direito de cada item) para mudar a ordem — o movimento é suave, estilo edição de playlist.
+- **↻ Métricas** (topo do painel): o bot abre o navegador e visita cada link da fila, um por um, atualizando curtidas e comentários. Pede confirmação antes (o sistema fica ocupado durante o processo) e os cartões atualizam em tempo real; se uma captura falhar, os valores antigos são mantidos.
 - O painel é **redimensionável** (puxe a alça **⋮** na borda esquerda dele).
 
 Só entram na fila publicações **não repetidas** (o filtro roda antes). Se você tentar **Utilizar agora** uma publicação que já está na fila, o app avisa — e, se você confirmar o uso, a cópia da fila é removida automaticamente.
@@ -150,6 +153,10 @@ As listas ficam no painel da direita, com um **seletor (dropdown)** para alterna
 - **CTA**: em segundo plano, o OCR lê os últimos cards e mostra o tipo de chamada — ex. `CTA: Comentar QUIERO · Seguir` (prioriza COMENTAR). Só roda nos itens disponíveis primeiro; se não achar, mostra "não detectada"
 - A **legenda** viaja junto: ao usar um item, o texto do `Legenda.txt` da origem é gravado na pasta de destino
 - A lista é **virtualizada** — abre leve mesmo com centenas de publicações (renderiza só o que aparece na tela)
+- **Filtros e ordenação**: barra no painel para ordenar (dia ↑↓, disponíveis primeiro, repetidas/utilizadas primeiro, CTA) e filtrar **combinando** status, tipo de CTA, palavra-gatilho e faixa de dias — ex.: só publicações *Comentar RECETAS*, *disponíveis*, *a partir do dia 20*. Um contador mostra "X de Y" e o botão **Limpar filtros** zera tudo
+- **Marcação manual**: botões **É Repetida** / **Não é Repetida** em cada item, para quando o filtro não reconhece sozinho (ex.: Card Final refeito). Ao marcar, dá para indicar a pasta/dia onde ela já existe (opcional). O **Recarregar preserva** as marcações manuais
+- Os **LOGs** mostram o andamento do OCR de CTA: quantas já foram analisadas, qual está sendo analisada agora (disponíveis primeiro, depois repetidas/já utilizadas) e o resultado de cada uma
+- Ao usar um item, a pasta de destino **não recebe cache de hash** — ele é recriado depois, a partir das imagens reais (afinal o Card Final ainda vai ser refeito)
 
 O **Histórico de Envios** é compartilhado entre as duas abas — funciona como a *timeline do dia*, para você montar a rotina misturando publicações do Filtro por Link e do Filtro Entre Contas.
 
@@ -218,7 +225,7 @@ A comparação funciona como um **jogo da memória bijetivo** entre o carrossel 
 
 Quando uma repetida é detectada, aparece um **balão lado a lado** com a imagem inicial da nova publicação e da já existente, com a opção de **confirmar** ou **salvar mesmo assim** (caso seja um falso positivo).
 
-**Cache de hashes** — cada pasta de envio guarda um `.hashes.json` com os hashes já calculados, carregado instantaneamente nas próximas comparações. O cache é recalculado automaticamente se as imagens da pasta mudarem.
+**Cache de hashes** — cada pasta de envio guarda um `.hashes.json` com os hashes já calculados, carregado instantaneamente nas próximas comparações. O cache guarda a **assinatura** de cada imagem (nome, tamanho e data de modificação): trocar qualquer card — ex.: Card Final refeito por IA — invalida e recalcula sozinho, só daquela pasta. Para forçar um recálculo geral, use **Configurações → Apagar caches de hash**.
 
 ---
 
@@ -233,7 +240,7 @@ O painel **Histórico de Envios** é a *timeline do dia*, compartilhado entre as
 
 **Navegação por dia:** as setas **◀ ▶** ao lado do título viajam entre os dias anteriores (mostrando o nome da pasta do dia). Os novos envios entram **no fim** da lista. Dias passados são **somente leitura** (sem os botões de ação). O arquivo fica em `data/history.json`.
 
-Para apagar tudo, clique em **Resetar** (com confirmação).
+O botão **Resetar** (com confirmação) reseta **o dia que está sendo exibido**, devolvendo cada publicação à sua origem: itens do Filtro Entre Contas voltam coloridos para a lista, itens que vieram da Fila de Espera voltam para a fila, e itens de link direto apenas liberam a pasta do dia (o link precisa ser colado de novo).
 
 ---
 
@@ -266,6 +273,7 @@ Para apagar tudo, clique em **Resetar** (com confirmação).
 │   └── requirements.txt       ← dependências Python
 ├── build.bat                  ← script para gerar o executável
 ├── filtro.spec                ← configuração do PyInstaller
+├── IDEIAS.md                  ← observações de operação e ideias futuras (documento vivo)
 └── README.md
 ```
 

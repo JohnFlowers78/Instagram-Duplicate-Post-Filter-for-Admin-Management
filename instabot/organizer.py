@@ -122,10 +122,12 @@ def find_next_empty_slot(day_folder: Path, slots: int = 6) -> Optional[Path]:
     return None
 
 
-def save_media_to_slot(slot: Path, media_paths: list[Path]) -> list[Path]:
+def save_media_to_slot(slot: Path, media_paths: list[Path], cache_hashes: bool = True) -> list[Path]:
     """Copia as midias para a subpasta, renomeando em ordem: 1, 2, 3...
-    Apos salvar, dispara o cache de hashes via dedup para que proximas
-    comparacoes carreguem do arquivo em vez de reprocessar as imagens."""
+    Com cache_hashes=True, dispara o cache de hashes via dedup para que proximas
+    comparacoes carreguem do arquivo em vez de reprocessar as imagens.
+    Use cache_hashes=False quando as imagens ainda vao ser editadas (ex.: Card
+    Final refeito por IA) — os hashes sao recalculados depois, do arquivo real."""
     saved = []
     for idx, src in enumerate(media_paths, start=1):
         ext = src.suffix
@@ -134,10 +136,11 @@ def save_media_to_slot(slot: Path, media_paths: list[Path]) -> list[Path]:
         saved.append(dest)
     set_large_icons_view(slot)
 
-    try:
-        import dedup
-        dedup.get_all_hashes(slot)
-    except Exception:
-        pass
+    if cache_hashes:
+        try:
+            import dedup
+            dedup.get_all_hashes(slot)
+        except Exception:
+            pass
 
     return saved

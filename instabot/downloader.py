@@ -236,6 +236,52 @@ def _extract_ig_meta(page, shortcode: str = "") -> dict:
     return meta
 
 
+def fetch_meta_batch(urls: list[str], progress_cb: ProgressCallback = None,
+                     on_meta: Optional[Callable[[int, str, Optional[dict]], None]] = None) -> list:
+    """Abre o navegador UMA vez e visita cada publicacao para recapturar
+    curtidas/comentarios/data (requer login no Instagram no perfil do bot).
+
+    on_meta(indice, url, meta) e chamado logo apos cada publicacao — permite a UI
+    salvar e atualizar o cartao daquele item na hora. meta=None quando a visita falha.
+    Retorna a lista de metas na mesma ordem das urls.
+    """
+    results: list = []
+    PROFILE_DIR.mkdir(parents=True, exist_ok=True)
+    stealth = Stealth()
+
+    _report(progress_cb, "Abrindo navegador...")
+    with sync_playwright() as p:
+        context = p.chromium.launch_persistent_context(
+            user_data_dir=str(PROFILE_DIR),
+            channel="chrome",
+            headless=False,
+            viewport={"width": 1280, "height": 800},
+            locale="pt-BR",
+            timezone_id="America/Sao_Paulo",
+            args=["--disable-blink-features=AutomationControlled"],
+        )
+        stealth.apply_stealth_sync(context)
+        page = context.pages[0] if context.pages else context.new_page()
+        try:
+            for i, url in enumerate(urls):
+                _report(progress_cb, f"({i + 1}/{len(urls)}) visitando a publicação...")
+                try:
+                    page.goto(url, wait_until="domcontentloaded", timeout=30000)
+                    page.wait_for_timeout(2500)
+                    meta = _extract_ig_meta(page, _shortcode(url))
+                except Exception:
+                    meta = None
+                results.append(meta)
+                if on_meta:
+                    try:
+                        on_meta(i, url, meta)
+                    except Exception:
+                        pass
+        finally:
+            context.close()
+    return results
+
+
 def download_carousel(
     instagram_url: str,
     dest_folder: Path,

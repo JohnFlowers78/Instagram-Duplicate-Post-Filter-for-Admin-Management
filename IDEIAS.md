@@ -2,7 +2,7 @@
 
 Documento vivo, separado do README: aqui ficam as **observações de funcionamento** que valem ouro na operação e as **ideias futuras** discutidas durante o desenvolvimento — para nada se perder entre uma versão e outra. As observações mais importantes também vão para o README.
 
-_Atualizado em: 14/07/2026_
+_Atualizado em: 15/07/2026_
 
 ---
 
@@ -51,7 +51,7 @@ Ao levar uma nova versão para a máquina de trabalho: trocar só o `FiltroDeRep
 
 ## ✅ Ideias implementadas (saíram da lista acima)
 
-_Nenhuma ainda — quando uma ideia da lista for implementada, ela migra para cá automaticamente, com a data._
+- **14/07/2026 — Escolher a coleção já ao Adicionar à Fila**: dropdown "Salvar em:" no modo fila do Filtro por Link (Salvos geral, Salvos + coleção, ou criar coleção nova na hora). Proposta e implementada no mesmo dia — fazia parte da ideia original dos Salvos com Coleções.
 
 ---
 

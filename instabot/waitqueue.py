@@ -8,6 +8,7 @@ A metadata fica em waiting_queue.json; as imagens em subpastas por id.
 import json
 import re
 import shutil
+import uuid
 from datetime import datetime
 from pathlib import Path
 
@@ -101,3 +102,96 @@ def remove_from_queue(entry_id: str) -> None:
     item_dir = WAITING_DIR / entry_id
     if item_dir.is_dir():
         shutil.rmtree(item_dir, ignore_errors=True)
+
+
+# ---------------------------------------------------------------------------
+# Colecoes (estilo "Salvos" do Instagram)
+#
+# A lista principal ("Salvos") continua sendo a fila em waiting_queue.json.
+# Colecoes sao rotulos nomeados em collections.json; cada entrada guarda os ids
+# das colecoes em entry["collections"]. Com only_collections=True a publicacao
+# aparece SO nas colecoes (sai da lista principal), mas continua estacionada na
+# fila para todos os efeitos (dedup, metricas, utilizar de proxima).
+# ---------------------------------------------------------------------------
+
+COLLECTIONS_FILE = DATA_DIR / "collections.json"
+
+
+def load_collections() -> list:
+    if COLLECTIONS_FILE.exists():
+        try:
+            data = json.loads(COLLECTIONS_FILE.read_text(encoding="utf-8"))
+            if isinstance(data, list):
+                return data
+        except Exception:
+            pass
+    return []
+
+
+def save_collections(cols: list) -> None:
+    COLLECTIONS_FILE.parent.mkdir(parents=True, exist_ok=True)
+    COLLECTIONS_FILE.write_text(
+        json.dumps(cols, ensure_ascii=False, indent=2), encoding="utf-8"
+    )
+
+
+def create_collection(name: str) -> dict:
+    col = {
+        "id": uuid.uuid4().hex,
+        "name": (name or "Sem nome").strip(),
+        "created": datetime.now().strftime("%d/%m/%Y %H:%M"),
+    }
+    cols = load_collections()
+    cols.append(col)
+    save_collections(cols)
+    return col
+
+
+def rename_collection(col_id: str, new_name: str) -> None:
+    cols = load_collections()
+    for c in cols:
+        if c.get("id") == col_id:
+            c["name"] = (new_name or c.get("name", "")).strip()
+            break
+    save_collections(cols)
+
+
+def delete_collection(col_id: str) -> None:
+    """Apaga a colecao (as publicacoes NAO sao apagadas). Quem estava SO nela
+    volta a aparecer nos Salvos — nada fica invisivel/orfao."""
+    save_collections([c for c in load_collections() if c.get("id") != col_id])
+    entries = load_queue()
+    changed = False
+    for e in entries:
+        ids = [i for i in (e.get("collections") or []) if i != col_id]
+        if ids != (e.get("collections") or []):
+            e["collections"] = ids
+            changed = True
+        if e.get("only_collections") and not ids:
+            e["only_collections"] = False
+            changed = True
+    if changed:
+        save_queue(entries)
+
+
+def set_entry_collections(entry_id: str, col_ids: list, only_collections: bool) -> None:
+    """Define as colecoes de uma publicacao. only_collections so vale se houver
+    ao menos uma colecao — ninguem some dos Salvos sem estar em lugar nenhum."""
+    entries = load_queue()
+    for e in entries:
+        if e.get("id") == entry_id:
+            e["collections"] = list(col_ids)
+            e["only_collections"] = bool(only_collections) and bool(col_ids)
+            save_queue(entries)
+            return
+
+
+def collection_entries(col_id: str, entries=None) -> list:
+    entries = entries if entries is not None else load_queue()
+    return [e for e in entries if col_id in (e.get("collections") or [])]
+
+
+def main_entries(entries=None) -> list:
+    """Entradas visiveis na lista principal 'Salvos'."""
+    entries = entries if entries is not None else load_queue()
+    return [e for e in entries if not e.get("only_collections")]

@@ -126,18 +126,23 @@ O navegador Chrome que o app abre é um perfil persistente. Na primeira vez:
 5. Acompanhe o progresso na barra e nos LOGs
 6. Um popup verde indica sucesso; vermelho indica erro ou publicação repetida
 
-### Fila de Espera
+### Salvos (Fila de Espera) e Coleções
 
-Publicações adicionadas à Fila de Espera são **baixadas e estacionadas** para uso posterior. O painel é aberto pela seta **❯** no canto superior direito e fica à direita da tela.
+Publicações adicionadas são **baixadas e estacionadas** para uso posterior, na lista principal **Salvos**. O painel é aberto pela seta **❯** no canto superior direito e fica à direita da tela. Um alternador no topo troca entre a lista **Salvos** e a grade de **Coleções**.
 
-- **Utilizar de Próxima** (verde): manda a publicação para a próxima pasta livre do dia e a remove da fila. Se não houver pasta livre, um aviso flutuante aparece por alguns segundos.
-- **Remover da Espera** (vermelho): tira da fila e apaga as imagens estacionadas (libera espaço).
-- **Reordenar**: arraste pela alça **⠿** (canto superior direito de cada item) para mudar a ordem — o movimento é suave, estilo edição de playlist.
-- **↻ Métricas** (topo do painel): o bot abre o navegador e visita cada link da fila, um por um, atualizando curtidas e comentários. Pede confirmação antes (o sistema fica ocupado durante o processo) e os cartões atualizam em tempo real; se uma captura falhar, os valores antigos são mantidos.
-- **Esvaziar** (topo do painel): remove todas as publicações da fila e apaga as imagens estacionadas (com confirmação).
-- O painel é **redimensionável** (puxe a alça **⋮** na borda esquerda dele).
+- **Utilizar de Próxima** (verde): manda a publicação para a próxima pasta livre do dia e a remove dos Salvos. Se não houver pasta livre, um aviso flutuante aparece por alguns segundos.
+- **Remover da Espera** (vermelho): tira dos Salvos e apaga as imagens estacionadas (libera espaço).
+- **🔖 Salvar em Coleções**: adiciona a publicação a uma ou mais coleções (pode criar coleção nova ali mesmo). Por padrão ela fica **nos dois lugares** (Salvos + coleção); marcando **"Tirar dos Salvos"** ela aparece **só nas coleções** marcadas — mas continua valendo para a detecção de repetidas e o Utilizar de Próxima.
+- **Reordenar**: arraste pela alça **⠿** (canto superior direito de cada item) para mudar a ordem — só na lista principal, movimento suave estilo playlist.
+- **↻ Métricas** (topo do painel): o bot abre o navegador e visita cada link, um por um, atualizando curtidas e comentários. Pede confirmação antes (o sistema fica ocupado durante o processo) e os cartões atualizam em tempo real; se uma captura falhar, os valores antigos são mantidos.
+- **Esvaziar** (topo do painel): remove todas as publicações dos Salvos e apaga as imagens estacionadas (com confirmação).
+- O painel é **redimensionável** (puxe a alça **⋮** na borda esquerda dele), respeitando as larguras mínimas do painel e da área principal.
 
-Só entram na fila publicações **não repetidas** (o filtro roda antes). Se você tentar **Utilizar agora** uma publicação que já está na fila, o app avisa — e, se você confirmar o uso, a cópia da fila é removida automaticamente.
+**Coleções** (grade estilo "Salvos" do Instagram): cada coleção vira um quadrado com **mosaico 2×2** das capas de até 4 publicações, com nome e contagem. Botões para **criar** (+ Nova Coleção), **renomear** (✏) e **apagar** (🗑). Apagar uma coleção **não apaga publicações** — as que estavam só nela voltam para os Salvos.
+
+Ao **Adicionar à Fila** por link, o campo **"Salvar em:"** permite mandar a publicação direto para **Salvos (geral)** ou **Salvos + uma coleção** (ou criar a coleção na hora), sem precisar abrir o 🔖 depois.
+
+Só entram nos Salvos publicações **não repetidas** (o filtro roda antes). Se você tentar **Utilizar agora** uma publicação que já está salva, o app avisa — e, se você confirmar o uso, a cópia é removida automaticamente.
 
 ### Filtro Entre Contas
 

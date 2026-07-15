@@ -85,7 +85,12 @@ def _apply_palette(name: str) -> None:
 
 _apply_palette("light")  # padrao no import; __init__ reaplica conforme a config
 
-QUEUE_W = 320        # largura do painel da fila de espera quando aberto
+QUEUE_W = 350        # largura do painel Salvos/Listas quando aberto
+QUEUE_MIN_W = 350    # largura MINIMA do painel aberto (nunca menor que isso)
+MAIN_MIN_W = 536     # largura MINIMA da area principal (abas) com o painel aberto
+WIN_MIN_W = 900      # largura minima da janela desde a abertura do app
+WIN_MIN_H = 700      # altura minima da janela
+GRID_GAP = 14        # respiro da grade de colecoes: borda esq = vao central = borda dir
 CROSS_ROW_H = 150    # altura fixa de cada cartao na lista virtualizada do Entre Contas
 CROSS_OVERSCAN = 3   # cartoes renderizados alem da area visivel (cada lado)
 
@@ -178,8 +183,8 @@ class App(tk.Tk):
         _apply_palette(self.cfg.get("theme", "light"))  # antes de qualquer cor
 
         self.title("Filtro de Repetidas - Instagram")
-        self.geometry("620x760")
-        self.minsize(560, 560)
+        self.geometry(f"{WIN_MIN_W}x760")
+        self.minsize(WIN_MIN_W, WIN_MIN_H)
         self.resizable(True, True)
         self.configure(bg=BG)
 
@@ -362,6 +367,18 @@ class App(tk.Tk):
             else:
                 b.configure(bg=INNER, fg=TXT_M,
                             activebackground=INNER, activeforeground=TXT_B)
+        # Linha 'Salvar em:' (colecao de destino) — so no modo fila
+        row = getattr(self, "_q_dest_row", None)
+        if row is not None:
+            try:
+                if mode == "queue":
+                    self._populate_q_dest_combo()
+                    if not row.winfo_ismapped():
+                        row.pack(fill="x", pady=(0, 8), after=self._mode_row)
+                else:
+                    row.pack_forget()
+            except tk.TclError:
+                pass
         # btn_start pode ainda nao existir (durante o build) ou apontar para um
         # widget ja destruido (durante a reconstrucao de tema) — protege ambos.
         btn = getattr(self, "btn_start", None)
@@ -370,6 +387,48 @@ class App(tk.Tk):
                 btn.config(text="Adicionar à Fila" if mode == "queue" else "Iniciar")
             except tk.TclError:
                 pass
+
+    def _populate_q_dest_combo(self, select_id=None):
+        """Preenche o 'Salvar em:' — Salvos (geral), Salvos + cada coleção, nova."""
+        cols = waitqueue.load_collections()
+        prev_id = None
+        cur = self._q_dest_combo.current()
+        if 0 <= cur < len(self._q_dest_ids):
+            prev_id = self._q_dest_ids[cur]
+        self._q_dest_ids = [None] + [c.get("id") for c in cols] + ["__new__"]
+        values = (["Salvos (geral)"]
+                  + [f"Salvos + {c.get('name', '?')}" for c in cols]
+                  + ["+ Nova coleção…"])
+        self._q_dest_combo.config(values=values)
+        target = select_id if select_id is not None else prev_id
+        idx = self._q_dest_ids.index(target) if target in self._q_dest_ids else 0
+        if self._q_dest_ids[idx] == "__new__":
+            idx = 0
+        self._q_dest_combo.current(idx)
+
+    def _refresh_q_dest_combo_safe(self):
+        """Repopula o 'Salvar em:' apos criar/renomear/apagar colecoes."""
+        if hasattr(self, "_q_dest_combo") and getattr(self, "_var_mode", "") == "queue":
+            try:
+                self._populate_q_dest_combo()
+            except tk.TclError:
+                pass
+
+    def _on_q_dest_selected(self, event=None):
+        idx = self._q_dest_combo.current()
+        if not (0 <= idx < len(self._q_dest_ids)):
+            return
+        if self._q_dest_ids[idx] == "__new__":
+            name = self._ask_text("Nova Coleção", "Nome da coleção:")
+            if name:
+                col = waitqueue.create_collection(name)
+                self._populate_q_dest_combo(select_id=col.get("id"))
+                # grade de colecoes aberta no painel? atualiza na hora
+                if (getattr(self, "_tab_active", "link") == "link"
+                        and getattr(self, "_q_view_mode", "main") == "grid"):
+                    self._reload_queue_panel()
+            else:
+                self._populate_q_dest_combo()   # cancelou → volta pro Salvos (geral)
 
     # ------------------------------------------------------------------
     # Tema (claro / escuro)
@@ -452,6 +511,8 @@ class App(tk.Tk):
             self._queue_open = False
             new_w = max(self.winfo_width() - w, self.minsize()[0])
         else:
+            # O painel abre SEMPRE com pelo menos a largura minima
+            self._queue_w = max(getattr(self, "_queue_w", QUEUE_W), QUEUE_MIN_W)
             self._queue_panel.configure(width=self._queue_w)
             self._queue_panel.pack(side="right", fill="y")
             self._btn_queue_toggle.config(text="❮")
@@ -470,8 +531,11 @@ class App(tk.Tk):
         # Puxar para a esquerda (x_root diminui) aumenta a largura da fila
         delta = self._qdrag_x0 - event.x_root
         new_w = self._qdrag_w0 + delta
-        min_w = 240
-        max_w = self.winfo_width() - 360  # garante espaco para a UI principal
+        # A bandeja respeita os MINIMOS dos dois lados: painel >= QUEUE_MIN_W e
+        # area principal >= MAIN_MIN_W. Na janela em tamanho minimo ela trava;
+        # para ganhar folga e so alargar a janela do app.
+        min_w = QUEUE_MIN_W
+        max_w = self.winfo_width() - MAIN_MIN_W
         new_w = max(min_w, min(new_w, max(min_w, max_w)))
         self._queue_w = new_w
         # Coalesce em ~60fps (ver _divider_drag): mais leve e sem engasgo
@@ -497,6 +561,8 @@ class App(tk.Tk):
             self._q_title.config(text="LISTAS ENTRE CONTAS")
             self._q_metrics_btn.pack_forget()
             self._q_clear_btn.pack_forget()
+            self._q_seg.pack_forget()
+            self._q_col_hdr.pack_forget()
             if not self._q_controls.winfo_ismapped():
                 self._q_controls.pack(fill="x", after=self._q_hdr)
             self._repair_cross_used_flags(crossaccount.get_active())
@@ -504,12 +570,14 @@ class App(tk.Tk):
             self._render_cross_list(reset_scroll=True)
             self._start_cross_ocr(crossaccount.get_active())
         else:
-            self._q_title.config(text="FILA DE ESPERA")
+            self._q_title.config(text="SALVOS")
             if not self._q_metrics_btn.winfo_ismapped():
                 self._q_metrics_btn.pack(side="right")
             if not self._q_clear_btn.winfo_ismapped():
                 self._q_clear_btn.pack(side="right", padx=(0, 6))
             self._q_controls.pack_forget()
+            if not self._q_seg.winfo_ismapped():
+                self._q_seg.pack(fill="x", after=self._q_hdr, pady=(0, 4))
             self._reload_queue_panel()
 
     # ------------------------------------------------------------------
@@ -871,8 +939,11 @@ class App(tk.Tk):
 
         btns = tk.Frame(row, bg=PANEL)
         btns.pack(fill="x", pady=(8, 0))
-        self._btn(btns, "Remover",
-                  lambda: self._remove_cross_item(list_id, item["id"]), "danger_sm").pack(side="right")
+        # 'Remover' SO nas repetidas: uma disponivel removida por engano so voltaria
+        # reanalisando a conta inteira (o Recarregar NAO ressuscita removidas)
+        if item.get("duplicate") and not item.get("used"):
+            self._btn(btns, "Remover",
+                      lambda: self._remove_cross_item(list_id, item["id"]), "danger_sm").pack(side="right")
         self._btn(btns, "📁", lambda p=item.get("src_path", ""): self._open_folder(p),
                   "secondary_sm").pack(side="right", padx=(0, 4))
         # Marcacao manual: quando o filtro nao reconhece sozinho (ex.: Card Final
@@ -1171,6 +1242,7 @@ class App(tk.Tk):
         self._mode_btns = {}
         mode_row = tk.Frame(card2, bg=BORDER, padx=1, pady=1)
         mode_row.pack(fill="x", pady=(0, 8))
+        self._mode_row = mode_row
         mode_inner = tk.Frame(mode_row, bg=INNER)
         mode_inner.pack(fill="x")
         for key, label in [("use", "Utilizar agora"),
@@ -1182,6 +1254,17 @@ class App(tk.Tk):
             )
             b.pack(side="left", fill="x", expand=True)
             self._mode_btns[key] = b
+
+        # Destino do salvamento no modo fila: Salvos (geral) ou Salvos + coleção.
+        # A linha so aparece no modo 'Adicionar à Fila' (toggle em _set_mode).
+        self._q_dest_row = tk.Frame(card2, bg=PANEL)
+        tk.Label(self._q_dest_row, text="Salvar em:", font=FONT_B, bg=PANEL,
+                 fg=TXT_B).pack(side="left")
+        self._q_dest_ids = [None]
+        self._q_dest_combo = ttk.Combobox(self._q_dest_row, state="readonly", font=FONT_S)
+        self._q_dest_combo.pack(side="left", fill="x", expand=True, padx=(8, 0))
+        self._q_dest_combo.bind("<<ComboboxSelected>>", self._on_q_dest_selected)
+
         self._set_mode("queue")
 
         link_row = tk.Frame(card2, bg=PANEL)
@@ -2445,7 +2528,7 @@ class App(tk.Tk):
         self._q_hdr = tk.Frame(content, bg=BG)
         self._q_hdr.pack(fill="x", padx=12, pady=(12, 4))
         self._q_title = tk.Label(
-            self._q_hdr, text="FILA DE ESPERA",
+            self._q_hdr, text="SALVOS",
             font=FONT_LBL, bg=BG, fg=TXT_M, anchor="w",
         )
         self._q_title.pack(side="left")
@@ -2459,6 +2542,30 @@ class App(tk.Tk):
             self._q_hdr, "Esvaziar", self._clear_waiting_queue, "danger_sm"
         )
         self._q_clear_btn.pack(side="right", padx=(0, 6))
+
+        # Alternador de visao dos Salvos (lista principal x colecoes) — so no modo
+        # Filtro por Link; o pack/pack_forget fica em _refresh_queue_panel_context
+        if not hasattr(self, "_q_view_mode"):
+            self._q_view_mode = "main"     # main | grid | collection
+            self._q_view_col = None
+        self._q_seg = tk.Frame(content, bg=BG)
+        seg_wrap = tk.Frame(self._q_seg, bg=BORDER, padx=1, pady=1)
+        seg_wrap.pack(fill="x", padx=12)
+        seg_inner = tk.Frame(seg_wrap, bg=INNER)
+        seg_inner.pack(fill="x")
+        self._q_seg_btns = {}
+        for key, label in [("main", "Salvos"), ("grid", "Coleções")]:
+            b = tk.Button(
+                seg_inner, text=label, font=FONT_S, relief="flat", bd=0,
+                cursor="hand2", pady=4, bg=INNER, fg=TXT_M,
+                activebackground=INNER, activeforeground=TXT_B,
+                command=lambda k=key: self._q_switch_view(k),
+            )
+            b.pack(side="left", fill="x", expand=True)
+            self._q_seg_btns[key] = b
+
+        # Cabecalho da colecao aberta (← nome ✏ 🗑) — montado em _update_col_header
+        self._q_col_hdr = tk.Frame(content, bg=BG)
 
         # Controles do modo 'Entre Contas' (seletor de lista + Recarregar).
         # Ficam ocultos no modo Filtro por Link.
@@ -2541,6 +2648,7 @@ class App(tk.Tk):
 
         q_outer = tk.Frame(content, bg=BORDER, padx=1, pady=1)
         q_outer.pack(fill="both", expand=True, padx=12, pady=(0, 12))
+        self._q_outer = q_outer   # referencia p/ posicionar o cabecalho de colecao
         q_card = tk.Frame(q_outer, bg=PANEL)
         q_card.pack(fill="both", expand=True)
 
@@ -2589,27 +2697,57 @@ class App(tk.Tk):
         self._queue_canvas.itemconfigure(self._queue_inner_id, width=event.width)
         if getattr(self, "_tab_active", "") == "cross":
             self._cross_virtual_update()
+        elif getattr(self, "_q_view_mode", "main") == "grid":
+            # Grade de colecoes: re-render coalescido p/ os mosaicos acompanharem
+            # a nova largura (bandeja/janela redimensionada)
+            if getattr(self, "_q_grid_rr", None):
+                try:
+                    self.after_cancel(self._q_grid_rr)
+                except Exception:
+                    pass
+            self._q_grid_rr = self.after(200, self._q_grid_rerender)
+
+    def _q_grid_rerender(self):
+        self._q_grid_rr = None
+        if (getattr(self, "_tab_active", "link") == "link"
+                and getattr(self, "_q_view_mode", "main") == "grid"):
+            self._reload_queue_panel()
 
     def _reload_queue_panel(self):
+        """Painel dos Salvos: despacha para a visao ativa (Salvos, grade de
+        Coleções ou uma coleção aberta — estilo 'Salvos' do Instagram)."""
         if not hasattr(self, "_queue_inner"):
             return
+        self._update_q_seg_styles()
+        self._update_col_header()
+        mode = getattr(self, "_q_view_mode", "main")
         self._q_drag = None
         for w in self._queue_inner.winfo_children():
             w.destroy()
         self._queue_thumb_refs.clear()
         self._q_state = []
-        entries = waitqueue.load_queue()
+        if mode == "grid":
+            self._render_collections_grid()
+            return
+        all_entries = waitqueue.load_queue()
+        if mode == "collection":
+            entries = waitqueue.collection_entries(getattr(self, "_q_view_col", ""), all_entries)
+            draggable = False   # reordenacao por arraste so na lista principal
+            empty_msg = "Coleção vazia.\nUse o 🔖 nos cartões dos Salvos\npara adicionar publicações."
+        else:
+            entries = waitqueue.main_entries(all_entries)
+            draggable = True
+            empty_msg = "Nenhuma publicação salva."
         if not entries:
-            self._queue_inner.configure(height=80)
+            self._queue_inner.configure(height=100)
             tk.Label(
-                self._queue_inner,
-                text="Nenhuma publicação na fila.",
+                self._queue_inner, text=empty_msg,
                 fg=TXT_M, font=FONT_B, bg=PANEL,
                 wraplength=240, justify="center",
             ).place(x=12, y=16)
             return
         for entry in entries:
-            frame = self._build_queue_row(entry)
+            frame = self._build_queue_row(entry, draggable=draggable)
             self._q_state.append({
                 "id": entry.get("id", ""), "frame": frame,
                 "h": 0, "y": 0.0, "ty": 0.0,
@@ -2620,8 +2758,307 @@ class App(tk.Tk):
             st["h"] = max(st["frame"].winfo_reqheight(), 1)
         self._q_relayout(initial=True)
 
-    def _build_queue_row(self, entry: dict):
-        """Monta o cartao de um item (sem posiciona-lo) e retorna o frame externo."""
+    # --- Salvos: alternador de visao, grade de colecoes e cabecalho ---
+
+    def _q_switch_view(self, key: str):
+        self._q_view_mode = "main" if key == "main" else "grid"
+        self._q_view_col = None
+        self._reload_queue_panel()
+
+    def _q_open_collection(self, col_id: str):
+        self._q_view_mode = "collection"
+        self._q_view_col = col_id
+        self._reload_queue_panel()
+
+    def _update_q_seg_styles(self):
+        mode = getattr(self, "_q_view_mode", "main")
+        active_key = "main" if mode == "main" else "grid"
+        for k, b in getattr(self, "_q_seg_btns", {}).items():
+            act = (k == active_key)
+            try:
+                b.config(bg=ACCENT if act else INNER,
+                         fg="#FFFFFF" if act else TXT_M,
+                         activebackground=ACCENT if act else INNER,
+                         activeforeground="#FFFFFF" if act else TXT_B)
+            except tk.TclError:
+                pass
+
+    def _update_col_header(self):
+        """Monta o cabecalho '← Nome ✏ 🗑' quando uma colecao esta aberta."""
+        hdr = getattr(self, "_q_col_hdr", None)
+        if hdr is None:
+            return
+        for w in hdr.winfo_children():
+            w.destroy()
+        if getattr(self, "_q_view_mode", "main") != "collection":
+            hdr.pack_forget()
+            return
+        col = next((c for c in waitqueue.load_collections()
+                    if c.get("id") == getattr(self, "_q_view_col", None)), None)
+        if col is None:   # colecao sumiu (apagada) → volta pra grade
+            self._q_view_mode = "grid"
+            self._q_view_col = None
+            hdr.pack_forget()
+            return
+        back = tk.Label(hdr, text="←", font=("Segoe UI", 12, "bold"),
+                        bg=BG, fg=TXT_M, cursor="hand2")
+        back.pack(side="left", padx=(0, 6))
+        back.bind("<Button-1>", lambda e: self._q_switch_view("grid"))
+        tk.Label(hdr, text=col.get("name", "?"), font=FONT_SH, bg=BG,
+                 fg=TXT_H, anchor="w").pack(side="left", fill="x", expand=True)
+        self._btn(hdr, "🗑", lambda cid=col["id"]: self._delete_collection_flow(cid),
+                  "danger_sm").pack(side="right")
+        self._btn(hdr, "✏", lambda cid=col["id"]: self._rename_collection_flow(cid),
+                  "secondary_sm").pack(side="right", padx=(0, 4))
+        if not hdr.winfo_ismapped():
+            hdr.pack(fill="x", padx=12, pady=(0, 4), before=self._q_outer)
+
+    def _collection_mosaic(self, entries: list, size: int = 132):
+        """Mosaico 2x2 (estilo Salvos do Instagram): capas de ate 4 publicacoes."""
+        img = Image.new("RGB", (size, size), INNER)
+        half = size // 2
+        pos = [(0, 0), (half, 0), (0, half), (half, half)]
+        for i, e in enumerate(entries[:4]):
+            tp = e.get("thumbnail", "")
+            if not tp or not Path(tp).exists():
+                continue
+            try:
+                t = Image.open(tp).convert("RGB")
+                w, h = t.size
+                m = min(w, h)
+                t = t.crop(((w - m) // 2, (h - m) // 2,
+                            (w - m) // 2 + m, (h - m) // 2 + m))
+                t = t.resize((half, half), Image.LANCZOS)
+                img.paste(t, pos[i])
+            except Exception:
+                pass
+        return ImageTk.PhotoImage(img)
+
+    def _render_collections_grid(self):
+        """Grade 2 colunas de colecoes: quadrado com mosaico 2x2 + nome + contagem.
+        O respiro e uniforme (borda esq = vao central = borda dir) e os mosaicos
+        se dimensionam pela largura disponivel do painel."""
+        inner = self._queue_inner
+        inner.columnconfigure(0, weight=1, uniform="qcols")
+        inner.columnconfigure(1, weight=1, uniform="qcols")
+        gap = GRID_GAP
+        avail = self._queue_canvas.winfo_width()
+        if avail < 60:   # canvas ainda sem layout: assume a largura minima do painel
+            avail = QUEUE_MIN_W - 24
+        tsize = max(100, min((avail - 3 * gap) // 2, 260))
+        cols = waitqueue.load_collections()
+        all_entries = waitqueue.load_queue()
+        self._btn(inner, "+  Nova Coleção", self._create_collection_flow,
+                  "secondary_sm").grid(row=0, column=0, columnspan=2,
+                                       sticky="we", padx=gap, pady=(gap - 4, 6))
+        if not cols:
+            tk.Label(
+                inner, text="Nenhuma coleção ainda.\nCrie a primeira!",
+                fg=TXT_M, font=FONT_B, bg=PANEL, justify="center",
+            ).grid(row=1, column=0, columnspan=2, pady=16)
+        for i, col in enumerate(cols):
+            ents = waitqueue.collection_entries(col.get("id", ""), all_entries)
+            tile = tk.Frame(inner, bg=PANEL, cursor="hand2")
+            # metade do vao em cada tile: borda = gap e centro = gap/2 + gap/2
+            padx = (gap, gap // 2) if i % 2 == 0 else (gap // 2, gap)
+            tile.grid(row=1 + i // 2, column=i % 2, padx=padx, pady=6, sticky="n")
+            photo = self._collection_mosaic(ents, size=tsize)
+            self._queue_thumb_refs.append(photo)
+            img_wrap = tk.Frame(tile, bg=BORDER, padx=1, pady=1)
+            img_wrap.pack()
+            img_lbl = tk.Label(img_wrap, image=photo, bg=INNER)
+            img_lbl.pack()
+            name_lbl = tk.Label(tile, text=col.get("name", "?"), font=FONT_SH,
+                                bg=PANEL, fg=TXT_H)
+            name_lbl.pack(anchor="w", pady=(4, 0))
+            cnt_lbl = tk.Label(tile, text=f"{len(ents)} publicação(ões)",
+                               font=FONT_S, bg=PANEL, fg=TXT_M)
+            cnt_lbl.pack(anchor="w")
+            for w in (tile, img_lbl, name_lbl, cnt_lbl):
+                w.bind("<Button-1>", lambda e, cid=col.get("id", ""): self._q_open_collection(cid))
+        inner.update_idletasks()
+        inner.configure(height=max(inner.winfo_reqheight(), 100))
+
+    def _create_collection_flow(self):
+        name = self._ask_text("Nova Coleção", "Nome da coleção:")
+        if not name:
+            return
+        waitqueue.create_collection(name)
+        self._q_view_mode = "grid"
+        self._reload_queue_panel()
+        self._refresh_q_dest_combo_safe()
+        self._show_toast(f"Coleção '{name}' criada.", 3000, OK_BG, OK_FG)
+
+    def _rename_collection_flow(self, col_id: str):
+        col = next((c for c in waitqueue.load_collections() if c.get("id") == col_id), None)
+        if col is None:
+            return
+        name = self._ask_text("Renomear Coleção", "Novo nome:", col.get("name", ""))
+        if not name:
+            return
+        waitqueue.rename_collection(col_id, name)
+        self._reload_queue_panel()
+        self._refresh_q_dest_combo_safe()
+        self._show_toast("Coleção renomeada.", 2500, OK_BG, OK_FG)
+
+    def _delete_collection_flow(self, col_id: str):
+        col = next((c for c in waitqueue.load_collections() if c.get("id") == col_id), None)
+        if col is None:
+            return
+        if not self._confirm_dialog(
+            "Apagar coleção",
+            f"A coleção '{col.get('name', '?')}' será apagada.\n"
+            "As publicações NÃO são apagadas — as que estavam só nela "
+            "voltam para os Salvos. Continuar?",
+        ):
+            return
+        waitqueue.delete_collection(col_id)
+        self._q_view_mode = "grid"
+        self._q_view_col = None
+        self._reload_queue_panel()
+        self._refresh_q_dest_combo_safe()
+        self._show_toast("Coleção apagada.", 3000, OK_BG, OK_FG)
+
+    def _ask_text(self, title: str, prompt: str, initial: str = ""):
+        """Dialog modal com um campo de texto. Retorna o texto ou None."""
+        result = [None]
+        dlg = tk.Toplevel(self)
+        dlg.title(title)
+        dlg.resizable(False, False)
+        dlg.transient(self)
+        dlg.grab_set()
+        dlg.attributes("-topmost", True)
+        dlg.configure(bg=PANEL)
+        tk.Label(dlg, text=prompt, bg=PANEL, fg=TXT_B, font=FONT_B).pack(
+            padx=26, pady=(18, 6))
+        wrap = tk.Frame(dlg, bg=BORDER, padx=1, pady=1)
+        wrap.pack(fill="x", padx=26)
+        ent = tk.Entry(wrap, font=FONT_B, bg=INNER, fg=TXT_H,
+                       insertbackground=TXT_H, relief="flat", bd=0)
+        ent.pack(fill="x", ipady=4)
+        ent.insert(0, initial)
+        ent.focus_set()
+        ent.select_range(0, "end")
+        btn_row = tk.Frame(dlg, bg=PANEL)
+        btn_row.pack(pady=(14, 18))
+
+        def ok(event=None):
+            result[0] = ent.get().strip() or None
+            dlg.destroy()
+
+        ent.bind("<Return>", ok)
+        self._btn(btn_row, "CANCELAR", dlg.destroy, "secondary").pack(side="left", padx=(0, 10))
+        self._btn(btn_row, "OK", ok, "primary").pack(side="left")
+        self.update_idletasks()
+        dlg.update_idletasks()
+        w, h = 380, 160
+        x = self.winfo_x() + (self.winfo_width() - w) // 2
+        y = self.winfo_y() + (self.winfo_height() - h) // 2
+        dlg.geometry(f"{w}x{h}+{x}+{y}")
+        dlg.wait_window()
+        return result[0]
+
+    def _edit_entry_collections(self, entry: dict):
+        """Dialog 🔖 'Salvar em Coleções' de uma publicacao, com a opcao de
+        tirar dos Salvos (deixar SO nas colecoes marcadas)."""
+        dlg = tk.Toplevel(self)
+        dlg.title("Salvar em Coleções")
+        dlg.resizable(False, False)
+        dlg.transient(self)
+        dlg.grab_set()
+        dlg.attributes("-topmost", True)
+        dlg.configure(bg=PANEL)
+        tk.Label(dlg, text="Escolha as coleções desta publicação:",
+                 bg=PANEL, fg=TXT_B, font=FONT_B).pack(padx=24, pady=(16, 8))
+        box = tk.Frame(dlg, bg=PANEL)
+        box.pack(fill="both", expand=True, padx=24)
+        var_by_id = {}
+        hint = [None]
+
+        def add_check(col, checked):
+            v = tk.BooleanVar(value=checked)
+            var_by_id[col.get("id", "")] = v
+            tk.Checkbutton(
+                box, text=col.get("name", "?"), variable=v, font=FONT_B,
+                bg=PANEL, fg=TXT_B, activebackground=PANEL,
+                activeforeground=TXT_H, selectcolor=PANEL,
+                anchor="w", cursor="hand2",
+            ).pack(fill="x")
+
+        current = set(entry.get("collections") or [])
+        cols = waitqueue.load_collections()
+        if not cols:
+            hint[0] = tk.Label(box, text="Nenhuma coleção ainda — crie abaixo.",
+                               font=FONT_S, bg=PANEL, fg=TXT_M, anchor="w")
+            hint[0].pack(fill="x", pady=(0, 4))
+        for c in cols:
+            add_check(c, c.get("id", "") in current)
+
+        # Criar nova colecao sem sair do dialog
+        new_row = tk.Frame(dlg, bg=PANEL)
+        new_row.pack(fill="x", padx=24, pady=(8, 0))
+        nwrap = tk.Frame(new_row, bg=BORDER, padx=1, pady=1)
+        nwrap.pack(side="left", fill="x", expand=True)
+        ent_new = tk.Entry(nwrap, font=FONT_B, bg=INNER, fg=TXT_H,
+                           insertbackground=TXT_H, relief="flat", bd=0)
+        ent_new.pack(fill="x", ipady=3)
+
+        def create_new(event=None):
+            name = ent_new.get().strip()
+            if not name:
+                return
+            col = waitqueue.create_collection(name)
+            if hint[0] is not None:
+                try:
+                    hint[0].destroy()
+                except Exception:
+                    pass
+                hint[0] = None
+            add_check(col, True)
+            ent_new.delete(0, "end")
+            self._refresh_q_dest_combo_safe()
+            dlg.update_idletasks()
+            dlg.geometry(f"{dlg.winfo_width()}x{dlg.winfo_reqheight()}"
+                         f"+{dlg.winfo_x()}+{dlg.winfo_y()}")
+
+        ent_new.bind("<Return>", create_new)
+        self._btn(new_row, "+ Criar", create_new, "secondary_sm").pack(side="left", padx=(6, 0))
+
+        only_var = tk.BooleanVar(value=bool(entry.get("only_collections")))
+        tk.Checkbutton(
+            dlg, text="Tirar dos Salvos (deixar SÓ nas coleções marcadas)",
+            variable=only_var, font=FONT_S, bg=PANEL, fg=TXT_B,
+            activebackground=PANEL, activeforeground=TXT_H,
+            selectcolor=PANEL, anchor="w", cursor="hand2", wraplength=320,
+        ).pack(fill="x", padx=24, pady=(10, 0))
+
+        btn_row = tk.Frame(dlg, bg=PANEL)
+        btn_row.pack(pady=(12, 16))
+
+        def save():
+            ids = [cid for cid, v in var_by_id.items() if v.get()]
+            if only_var.get() and not ids:
+                self._show_toast("Marque ao menos uma coleção para tirar dos Salvos.",
+                                 4000, ERR_BG, ERR_FG)
+                return
+            waitqueue.set_entry_collections(entry.get("id", ""), ids, only_var.get())
+            dlg.destroy()
+            self._reload_queue_panel()
+            self._show_toast("Coleções atualizadas.", 2500, OK_BG, OK_FG)
+
+        self._btn(btn_row, "CANCELAR", dlg.destroy, "secondary").pack(side="left", padx=(0, 10))
+        self._btn(btn_row, "SALVAR", save, "primary").pack(side="left")
+        self.update_idletasks()
+        dlg.update_idletasks()
+        w = max(dlg.winfo_reqwidth(), 400)
+        h = dlg.winfo_reqheight()
+        x = self.winfo_x() + (self.winfo_width() - w) // 2
+        y = self.winfo_y() + (self.winfo_height() - h) // 2
+        dlg.geometry(f"{w}x{h}+{x}+{y}")
+
+    def _build_queue_row(self, entry: dict, draggable: bool = True):
+        """Monta o cartao de um item (sem posiciona-lo) e retorna o frame externo.
+        draggable=False nas visoes de colecao (reordenar so na lista principal)."""
         entry_id = entry.get("id", "")
         row_outer = tk.Frame(self._queue_inner, bg=BORDER, padx=1, pady=1)
         row = tk.Frame(row_outer, bg=PANEL, padx=8, pady=8)
@@ -2682,12 +3119,13 @@ class App(tk.Tk):
             )
             val_lbl.pack(side="left", padx=(0, 8))
             row_outer._meta_labels[key] = val_lbl
+        # 'Postado em:' em linha propria — na mesma linha das metricas cortava
         post_date = meta.get("post_date", "N/D")
         if post_date and post_date != "N/D":
             tk.Label(
-                meta_row, text=f"Postado em: {post_date}",
+                info, text=f"Postado em: {post_date}",
                 font=FONT_M, bg=PANEL, fg=TXT_M, anchor="w",
-            ).pack(side="left")
+            ).pack(fill="x")
 
         # URL clicavel (sem botao de copiar)
         url = entry.get("url", "")
@@ -2709,19 +3147,24 @@ class App(tk.Tk):
             lambda ent=entry: self._use_queue_entry(ent), "green_sm",
         ).pack(side="left")
         self._btn(
+            btns, "🔖",
+            lambda ent=entry: self._edit_entry_collections(ent), "secondary_sm",
+        ).pack(side="left", padx=(4, 0))
+        self._btn(
             btns, "Remover da Espera",
             lambda ent=entry: self._remove_queue_entry(ent), "danger_sm",
         ).pack(side="right")
 
-        # Alca de arraste (so o simbolo), no canto superior direito do cartao
-        grip = tk.Label(
-            row, text="⠿", font=("Segoe UI", 14, "bold"),
-            bg=PANEL, fg=TXT_M, cursor="fleur",
-        )
-        grip.place(relx=1.0, y=0, anchor="ne")
-        grip.bind("<Button-1>", lambda e, i=entry_id: self._q_drag_start(e, i))
-        grip.bind("<B1-Motion>", self._q_drag_motion)
-        grip.bind("<ButtonRelease-1>", lambda e, i=entry_id: self._q_drag_release(e, i))
+        if draggable:
+            # Alca de arraste (so o simbolo), no canto superior direito do cartao
+            grip = tk.Label(
+                row, text="⠿", font=("Segoe UI", 14, "bold"),
+                bg=PANEL, fg=TXT_M, cursor="fleur",
+            )
+            grip.place(relx=1.0, y=0, anchor="ne")
+            grip.bind("<Button-1>", lambda e, i=entry_id: self._q_drag_start(e, i))
+            grip.bind("<B1-Motion>", self._q_drag_motion)
+            grip.bind("<ButtonRelease-1>", lambda e, i=entry_id: self._q_drag_release(e, i))
 
         return row_outer
 
@@ -3213,16 +3656,26 @@ class App(tk.Tk):
             self._show_result_popup(False, "Selecione a pasta de análise antes de iniciar.")
             return
         mode = getattr(self, "_var_mode", "use")
+        # Colecao de destino escolhida no 'Salvar em:' (le AQUI, na thread da UI)
+        dest_col = None
+        if mode == "queue" and hasattr(self, "_q_dest_combo"):
+            idx = self._q_dest_combo.current()
+            if 0 <= idx < len(self._q_dest_ids):
+                dest_col = self._q_dest_ids[idx]
+            if dest_col == "__new__":
+                dest_col = None
         self.btn_start.config(state="disabled")
         self.btn_paste_clear.config(state="disabled")
         self.progress["value"] = 0
         self.lbl_status.config(text=STEPS[0])
         self.clear_log()
         threading.Thread(
-            target=self._run_pipeline, args=(link, Path(db_folder), mode), daemon=True
+            target=self._run_pipeline, args=(link, Path(db_folder), mode, dest_col),
+            daemon=True,
         ).start()
 
-    def _run_pipeline(self, link: str, db_folder: Path, mode: str = "use"):
+    def _run_pipeline(self, link: str, db_folder: Path, mode: str = "use",
+                      dest_col: "str | None" = None):
         tmp_dir = Path(tempfile.mkdtemp(prefix="instabot_"))
         try:
             self._step(0, "Verificando configuracoes...")
@@ -3306,7 +3759,10 @@ class App(tk.Tk):
 
             if mode == "queue":
                 self._step(4, "Adicionando à fila de espera...")
-                waitqueue.add_to_queue(link, media_paths, ig_meta)
+                q_entry = waitqueue.add_to_queue(link, media_paths, ig_meta)
+                if dest_col:   # 'Salvar em: Salvos + colecao' escolhido no dropdown
+                    waitqueue.set_entry_collections(q_entry.get("id", ""), [dest_col], False)
+                    self._log_async("Salva tambem na colecao escolhida.")
                 self._step(5, "Adicionado à fila de espera!")
                 self._log_async("Publicacao estacionada na fila de espera.")
                 self.after(0, self._on_queued)
@@ -3375,6 +3831,9 @@ class App(tk.Tk):
         self.after(0, finish)
 
     def _on_queued(self):
+        # Publicacao nova entra nos Salvos — volta pra visao principal p/ aparecer
+        self._q_view_mode = "main"
+        self._q_view_col = None
         if self._queue_open:
             self._reload_queue_panel()
         else:

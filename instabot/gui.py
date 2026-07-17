@@ -18,6 +18,8 @@ import crossaccount
 import cta
 import dedup
 import downloader
+import feedbot
+import feedinbox
 import organizer
 import waitqueue
 from paths import DATA_DIR, ASSETS_DIR
@@ -93,6 +95,9 @@ WIN_MIN_H = 700      # altura minima da janela
 GRID_GAP = 14        # respiro da grade de colecoes: borda esq = vao central = borda dir
 CROSS_ROW_H = 150    # altura fixa de cada cartao na lista virtualizada do Entre Contas
 CROSS_OVERSCAN = 3   # cartoes renderizados alem da area visivel (cada lado)
+FEED_ROW_H = 560     # altura fixa de cada publicacao no Feed Especial (virtualizado)
+FEED_IMG = 400       # lado da capa quadrada no Feed Especial
+FEED_OVERSCAN = 2    # publicacoes renderizadas alem da area visivel (cada lado)
 
 FONT_H  = ("Segoe UI", 10, "bold")
 FONT_SH = ("Segoe UI", 9, "bold")
@@ -297,7 +302,8 @@ class App(tk.Tk):
             except Exception:
                 pass
 
-        for key, label in [("link", "  Filtro por Link  "),
+        for key, label in [("feed", "  Feed  "),
+                           ("link", "  Filtro por Link  "),
                            ("cross", "  Filtro Entre Contas  "),
                            ("settings", "  Configurações  ")]:
             col = tk.Frame(tab_bar, bg=PANEL)
@@ -331,6 +337,7 @@ class App(tk.Tk):
 
         # Paginas de conteudo
         for key, build_fn in [
+            ("feed",     self._build_feed_tab),
             ("link",     self._build_link_tab),
             ("cross",    self._build_cross_tab),
             ("settings", self._build_settings_tab),
@@ -353,6 +360,8 @@ class App(tk.Tk):
         # O painel direito e contextual: fila de links x listas entre contas
         if hasattr(self, "_queue_panel"):
             self._refresh_queue_panel_context()
+        if name == "feed" and hasattr(self, "_feed_inner"):
+            self._reload_feed_view()
 
     # ------------------------------------------------------------------
     # Chave seletora de modo (usar agora / fila de espera)
@@ -1147,6 +1156,13 @@ class App(tk.Tk):
             self._show_toast("Não foi possível abrir a pasta.", 3000, ERR_BG, ERR_FG)
 
     def _refresh_cross_list(self):
+        # Com o Recarregar rodando, o mesmo botao vira "Cancelar"
+        if getattr(self, "_cross_busy", False):
+            ev = getattr(self, "_cross_stop_ev", None)
+            if ev is not None:
+                ev.set()
+                self._cross_log("Cancelamento solicitado — parando…")
+            return
         active = crossaccount.get_active()
         if not active:
             return
@@ -1154,9 +1170,12 @@ class App(tk.Tk):
         if not db or not Path(db).is_dir():
             self._show_toast("Selecione a Pasta de Destino primeiro.", 4000, ERR_BG, ERR_FG)
             return
-        if getattr(self, "_cross_busy", False):
-            return
         self._cross_busy = True
+        self._cross_stop_ev = threading.Event()
+        try:
+            self._cross_reload_btn.config(text="✖ Cancelar")
+        except (tk.TclError, AttributeError):
+            pass
         self._cross_clear_log()          # limpa na thread principal (Tk nao e thread-safe)
         self.cross_progress["value"] = 0
         threading.Thread(target=self._run_cross_refresh, args=(active, Path(db)), daemon=True).start()
@@ -1179,7 +1198,12 @@ class App(tk.Tk):
             threshold = self.cfg.get("hash_threshold", 5)
             dest_index = dedup.build_post_index(db_folder)
             changed = 0
+            cancelled = False
             for i, it in enumerate(avail, start=1):
+                stop_ev = getattr(self, "_cross_stop_ev", None)
+                if stop_ev is not None and stop_ev.is_set():
+                    cancelled = True
+                    break
                 self._cross_status(f"Recarregando {i} de {total}...", (i / total * 100) if total else 100)
                 if i == 1 or i == total or i % 10 == 0:
                     self._cross_log(f"  reanalisando {i} de {total}")
@@ -1191,14 +1215,28 @@ class App(tk.Tk):
                     it["duplicate"] = is_dup
                     it["dup_location"] = new_loc
                     changed += 1
-            crossaccount.save(data)
-            self._cross_status("Recarregado!", 100)
-            self._cross_log(f"Concluído — {changed} item(ns) atualizado(s).")
+            # Transacional (estilo React Router): a analise antiga so e substituida
+            # quando o Recarregar TERMINA. Cancelou no meio -> descarta o parcial
+            # e mantem a analise anterior intacta (nada e salvo).
+            if cancelled:
+                self._cross_status("Recarregamento cancelado.", 0)
+                self._cross_log("Cancelado — nada foi alterado (mantida a análise anterior).")
+            else:
+                crossaccount.save(data)
+                self._cross_status("Recarregado!", 100)
+                self._cross_log(f"Concluído — {changed} item(ns) atualizado(s).")
             self.after(0, self._render_cross_list)
         except Exception as exc:
             self._cross_log(f"ERRO: {exc}")
         finally:
             self._cross_busy = False
+
+            def fin():
+                try:
+                    self._cross_reload_btn.config(text="↻  Recarregar")
+                except (tk.TclError, AttributeError):
+                    pass
+            self.after(0, fin)
 
     # ------------------------------------------------------------------
     # Toast flutuante (mini balao temporario)
@@ -1462,11 +1500,468 @@ class App(tk.Tk):
         self._build_history_panel(hist_holder)
 
     # ------------------------------------------------------------------
+    # Aba: Feed Especial ("Instagram Saudavel") — Fase 1
+    # ------------------------------------------------------------------
+
+    def _build_feed_tab(self, page):
+        PAD = {"padx": 12, "pady": (6, 0)}
+        feed = feedinbox.get_or_create_default_feed()
+        cfg = {**feedinbox.DEFAULT_CONFIG, **(feed.get("config") or {})}
+        self._feed_id = feed["id"]
+
+        outer, card = self._make_card(page, "Feed Especial — Conta-Isca")
+        outer.pack(fill="x", **PAD)
+
+        vcmd = (self.register(lambda v: v == "" or v.isdigit()), "%P")
+
+        def cfg_entry(parent, var, width=8):
+            wrap = tk.Frame(parent, bg=BORDER, padx=1, pady=1)
+            tk.Entry(wrap, textvariable=var, width=width, font=FONT_B, justify="center",
+                     bg=INNER, fg=TXT_H, insertbackground=TXT_H, relief="flat", bd=0,
+                     validate="key", validatecommand=vcmd).pack(ipady=3)
+            return wrap
+
+        self._fv_likes_min = tk.StringVar(value=str(cfg.get("likes_min", 20000)))
+        self._fv_likes_max = tk.StringVar(value=str(cfg.get("likes_max", 1000000)))
+        self._fv_comm_min = tk.StringVar(value=str(cfg.get("comments_min", 200)))
+        self._fv_minutes = tk.StringVar(value=str(cfg.get("scroll_minutes", 10)))
+        self._fv_only_car = tk.BooleanVar(value=bool(cfg.get("only_carousels", True)))
+
+        r1 = tk.Frame(card, bg=PANEL)
+        r1.pack(fill="x")
+        tk.Label(r1, text="Curtidas de", font=FONT_B, bg=PANEL, fg=TXT_B).pack(side="left")
+        cfg_entry(r1, self._fv_likes_min).pack(side="left", padx=4)
+        tk.Label(r1, text="a", font=FONT_B, bg=PANEL, fg=TXT_B).pack(side="left")
+        cfg_entry(r1, self._fv_likes_max).pack(side="left", padx=4)
+        tk.Label(r1, text="   Comentários ≥", font=FONT_B, bg=PANEL, fg=TXT_B).pack(side="left")
+        cfg_entry(r1, self._fv_comm_min, width=6).pack(side="left", padx=4)
+
+        r2 = tk.Frame(card, bg=PANEL)
+        r2.pack(fill="x", pady=(8, 0))
+        tk.Checkbutton(
+            r2, text="Somente carrosséis", variable=self._fv_only_car,
+            font=FONT_B, bg=PANEL, fg=TXT_B, activebackground=PANEL,
+            activeforeground=TXT_H, selectcolor=PANEL, cursor="hand2",
+        ).pack(side="left")
+        tk.Label(r2, text="   Coleta de", font=FONT_B, bg=PANEL, fg=TXT_B).pack(side="left")
+        cfg_entry(r2, self._fv_minutes, width=4).pack(side="left", padx=4)
+        tk.Label(r2, text="min", font=FONT_B, bg=PANEL, fg=TXT_B).pack(side="left")
+        self._btn(r2, "Salvar Config", lambda: self._save_feed_config(), "secondary_sm").pack(side="right")
+
+        r3 = tk.Frame(card, bg=PANEL)
+        r3.pack(fill="x", pady=(10, 0))
+        self._feed_collect_btn = self._btn(r3, "▶ Coletar agora", self._start_feed_collect, "primary")
+        self._feed_collect_btn.pack(side="left")
+        self._btn(r3, "🗑 Limpar feed", self._clear_feed_flow, "danger_sm").pack(side="left", padx=(8, 0))
+        self._feed_status_lbl = tk.Label(r3, text="", font=FONT_S, bg=PANEL, fg=TXT_M, anchor="e")
+        self._feed_status_lbl.pack(side="right", fill="x", expand=True)
+
+        # LOGs da coleta (compactos)
+        logs_holder = tk.Frame(page, bg=BG, height=92)
+        logs_holder.pack(fill="x", pady=(6, 0), padx=12)
+        logs_holder.pack_propagate(False)
+        louter, lcard = self._make_card(logs_holder, "LOGs da Coleta")
+        louter.pack(fill="both", expand=True)
+        lsb = ttk.Scrollbar(lcard, orient="vertical")
+        self._feed_txt_log = tk.Text(
+            lcard, height=3, state="disabled", wrap="word", yscrollcommand=lsb.set,
+            font=("Consolas", 8), bg=INNER, fg=TXT_B, insertbackground=TXT_B,
+            relief="flat", bd=0, highlightthickness=0, spacing1=1, spacing3=1,
+        )
+        lsb.config(command=self._feed_txt_log.yview)
+        self._feed_txt_log.pack(side="left", fill="both", expand=True)
+        lsb.pack(side="right", fill="y")
+
+        # O feed em si (rolagem estilo Instagram, virtualizado)
+        f_holder = tk.Frame(page, bg=BG)
+        f_holder.pack(fill="both", expand=True, padx=12, pady=(6, 12))
+        f_outer = tk.Frame(f_holder, bg=BORDER, padx=1, pady=1)
+        f_outer.pack(fill="both", expand=True)
+        f_card = tk.Frame(f_outer, bg=PANEL)
+        f_card.pack(fill="both", expand=True)
+        self._feed_canvas = tk.Canvas(f_card, borderwidth=0, highlightthickness=0, bg=PANEL)
+        fsb = ttk.Scrollbar(f_card, orient="vertical", command=self._feed_yview)
+        self._feed_canvas.configure(yscrollcommand=fsb.set)
+        self._feed_inner = tk.Frame(self._feed_canvas, bg=PANEL)
+        self._feed_inner_id = self._feed_canvas.create_window((0, 0), window=self._feed_inner, anchor="nw")
+        self._feed_canvas.pack(side="left", fill="both", expand=True)
+        fsb.pack(side="right", fill="y")
+        self._feed_inner.bind(
+            "<Configure>",
+            lambda e: self._feed_canvas.configure(scrollregion=self._feed_canvas.bbox("all")),
+        )
+        self._feed_canvas.bind("<Configure>", self._on_feed_canvas_configure)
+        self._feed_canvas.bind(
+            "<Enter>", lambda e: self._feed_canvas.bind_all("<MouseWheel>", self._on_feed_scroll))
+        self._feed_canvas.bind(
+            "<Leave>", lambda e: self._feed_canvas.unbind_all("<MouseWheel>"))
+        self._feed_rows = {}
+        self._feed_items = []
+
+    def _feed_log(self, msg: str):
+        def apply():
+            try:
+                self._feed_txt_log.config(state="normal")
+                self._feed_txt_log.insert("end", msg + "\n")
+                self._feed_txt_log.see("end")
+                self._feed_txt_log.config(state="disabled")
+            except tk.TclError:
+                pass
+        self.after(0, apply)
+
+    def _save_feed_config(self, silent: bool = False):
+        def num(var, dft):
+            try:
+                return int(var.get() or dft)
+            except (ValueError, tk.TclError):
+                return dft
+        feedinbox.update_config(self._feed_id, {
+            "likes_min": num(self._fv_likes_min, 20000),
+            "likes_max": num(self._fv_likes_max, 1000000),
+            "comments_min": num(self._fv_comm_min, 200),
+            "scroll_minutes": max(1, num(self._fv_minutes, 10)),
+            "only_carousels": bool(self._fv_only_car.get()),
+        })
+        if not silent:
+            self._show_toast("Configurações do Feed salvas.", 3000, OK_BG, OK_FG)
+
+    def _start_feed_collect(self):
+        """1º clique inicia a coleta; com a coleta rodando, o clique pede parada."""
+        if getattr(self, "_feed_collect_busy", False):
+            ev = getattr(self, "_feed_stop_ev", None)
+            if ev is not None:
+                ev.set()
+                self._feed_log("Parada solicitada — encerrando o ciclo atual…")
+            return
+        self._save_feed_config(silent=True)   # aplica o que estiver nos campos
+        self._feed_collect_busy = True
+        self._feed_stop_ev = threading.Event()
+        self._feed_collect_btn.config(text="■ Parar coleta")
+        # Cronometro: inicio + decorrido + restante, atualizado a cada segundo
+        try:
+            self._feed_run_minutes = max(1, int(self._fv_minutes.get() or 10))
+        except (ValueError, tk.TclError):
+            self._feed_run_minutes = 10
+        self._feed_run_started = datetime.now()
+        self._feed_timer_tick()
+        threading.Thread(target=self._run_feed_collect, daemon=True).start()
+
+    def _feed_timer_tick(self):
+        if not getattr(self, "_feed_collect_busy", False):
+            self._update_feed_status()   # volta ao status normal do feed
+            return
+        start = getattr(self, "_feed_run_started", None)
+        if start is None:
+            return
+        elapsed = (datetime.now() - start).total_seconds()
+        remain = max(0.0, getattr(self, "_feed_run_minutes", 10) * 60 - elapsed)
+
+        def fmt(s):
+            return f"{int(s // 60):02d}:{int(s % 60):02d}"
+
+        try:
+            self._feed_status_lbl.config(
+                text=f"⏱ Coletando — início {start.strftime('%H:%M:%S')} · "
+                     f"decorrido {fmt(elapsed)} · restam {fmt(remain)}")
+        except tk.TclError:
+            pass
+        self.after(1000, self._feed_timer_tick)
+
+    def _run_feed_collect(self):
+        try:
+            feedbot.collect(self._feed_id, progress_cb=self._feed_log,
+                            login_wait_cb=self._login_wait_cb,
+                            should_stop=self._feed_stop_ev)
+        except Exception as exc:
+            self._feed_log(f"ERRO na coleta: {exc}")
+        finally:
+            self._feed_collect_busy = False
+
+            def fin():
+                try:
+                    self._feed_collect_btn.config(text="▶ Coletar agora")
+                except tk.TclError:
+                    pass
+                self._reload_feed_view()
+            self.after(0, fin)
+
+    def _clear_feed_flow(self):
+        c = feedinbox.counts(self._feed_id)
+        total = sum(c.values())
+        if not total:
+            self._show_toast("O feed já está vazio.", 3000, ERR_BG, ERR_FG)
+            return
+        if not self._confirm_dialog(
+            "Limpar feed",
+            f"As {total} publicação(ões) do feed (e suas capas) serão removidas.\n"
+            "O que já foi salvo nos Salvos/Coleções NÃO é afetado. Continuar?",
+        ):
+            return
+        feedinbox.clear_feed(self._feed_id)
+        self._reload_feed_view()
+        self._show_toast("Feed limpo.", 3000, OK_BG, OK_FG)
+
+    def _update_feed_status(self):
+        c = feedinbox.counts(self._feed_id)
+        feed = feedinbox.get_feed(self._feed_id)
+        last = (feed or {}).get("last_collect", "") or "nunca"
+        try:
+            self._feed_status_lbl.config(
+                text=f"{c.get('new', 0)} no feed · {c.get('saved', 0)} salvas · "
+                     f"{c.get('discarded', 0)} descartadas · última coleta: {last}")
+        except tk.TclError:
+            pass
+
+    def _reload_feed_view(self, keep_scroll: bool = False):
+        if not hasattr(self, "_feed_inner"):
+            return
+        frac = self._feed_canvas.yview()[0] if keep_scroll else 0.0
+        for w in self._feed_inner.winfo_children():
+            w.destroy()
+        self._feed_rows = {}
+        items = feedinbox.items_by_status(self._feed_id, "new")
+        items.reverse()   # mais recentes primeiro, como no Instagram
+        self._feed_items = items
+        self._update_feed_status()
+        if not items:
+            self._feed_inner.configure(height=140)
+            tk.Label(
+                self._feed_inner,
+                text="Feed vazio.\n\nClique em '▶ Coletar agora' para o robô rolar a\n"
+                     "conta-isca e trazer publicações do seu gosto.",
+                fg=TXT_M, font=FONT_B, bg=PANEL, justify="center",
+            ).place(x=16, y=24)
+            return
+        self._feed_inner.configure(height=len(items) * FEED_ROW_H + 4)
+        self._feed_canvas.yview_moveto(frac)
+        self._feed_virtual_update()
+
+    def _feed_virtual_update(self):
+        """Igual a lista Entre Contas: so cria as publicacoes visiveis (+ margem)."""
+        if not getattr(self, "_feed_items", None) or not hasattr(self, "_feed_rows"):
+            return
+        canvas = self._feed_canvas
+        try:
+            top = max(0.0, canvas.canvasy(0))
+        except Exception:
+            top = 0.0
+        vh = canvas.winfo_height() or 1
+        n = len(self._feed_items)
+        i0 = max(0, int(top // FEED_ROW_H) - FEED_OVERSCAN)
+        i1 = min(n - 1, int((top + vh) // FEED_ROW_H) + FEED_OVERSCAN)
+        want = set(range(i0, i1 + 1))
+        have = set(self._feed_rows.keys())
+        for i in have - want:
+            try:
+                self._feed_rows[i].destroy()
+            except Exception:
+                pass
+            del self._feed_rows[i]
+        for i in want - have:
+            row = self._build_feed_row(self._feed_items[i])
+            row.place(x=4, y=i * FEED_ROW_H, relwidth=1, width=-8)
+            self._feed_rows[i] = row
+
+    def _on_feed_scroll(self, event):
+        self._feed_canvas.yview_scroll(int(-1 * (event.delta / 120)), "units")
+        self._feed_virtual_update()
+
+    def _feed_yview(self, *args):
+        self._feed_canvas.yview(*args)
+        self._feed_virtual_update()
+
+    def _on_feed_canvas_configure(self, event):
+        self._feed_canvas.itemconfigure(self._feed_inner_id, width=event.width)
+        self._feed_virtual_update()
+
+    def _build_feed_row(self, item: dict):
+        row_outer = tk.Frame(self._feed_inner, bg=BORDER, padx=1, pady=1)
+        row = tk.Frame(row_outer, bg=PANEL, padx=10, pady=8)
+        row.pack(fill="both", expand=True)
+
+        hdr = tk.Frame(row, bg=PANEL)
+        hdr.pack(fill="x")
+        tk.Label(hdr, text=item.get("shortcode", "?"), font=FONT_SH,
+                 bg=PANEL, fg=TXT_H).pack(side="left")
+        badge = " · carrossel" if item.get("carousel") else ""
+        tk.Label(hdr, text=f"❤ {item.get('likes', 'N/D')} · 💬 {item.get('comments', 'N/D')}{badge}",
+                 font=FONT_S, bg=PANEL, fg=TXT_M).pack(side="right")
+
+        img_frame = tk.Frame(row, bg=INNER, width=FEED_IMG, height=FEED_IMG)
+        img_frame.pack(pady=(6, 0))
+        img_frame.pack_propagate(False)
+        tp = item.get("thumb", "")
+        shown = False
+        if tp and Path(tp).exists():
+            try:
+                im = Image.open(tp).convert("RGB")
+                w, h = im.size
+                m = min(w, h)
+                im = im.crop(((w - m) // 2, (h - m) // 2, (w - m) // 2 + m, (h - m) // 2 + m))
+                im = im.resize((FEED_IMG, FEED_IMG), Image.LANCZOS)
+                ph = ImageTk.PhotoImage(im)
+                row_outer._photo = ph
+                tk.Label(img_frame, image=ph, bg=INNER).pack()
+                shown = True
+            except Exception:
+                pass
+        if not shown:
+            tk.Label(img_frame, text="[capa indisponível]", fg=TXT_M,
+                     font=FONT_B, bg=INNER).pack(expand=True)
+
+        cap = (item.get("caption") or "").strip()
+        if cap:
+            tk.Label(row, text=cap[:110] + ("…" if len(cap) > 110 else ""),
+                     font=FONT_S, bg=PANEL, fg=TXT_B, anchor="w",
+                     wraplength=FEED_IMG).pack(fill="x", pady=(6, 0))
+
+        btns = tk.Frame(row, bg=PANEL)
+        btns.pack(fill="x", pady=(8, 0))
+        self._btn(btns, "💾 Salvar em…",
+                  lambda it=item: self._feed_save_item(it), "green_sm").pack(side="left")
+        self._btn(btns, "🔗", lambda u=item.get("url", ""): webbrowser.open(u),
+                  "secondary_sm").pack(side="left", padx=(6, 0))
+        self._btn(btns, "✕ Descartar",
+                  lambda it=item: self._feed_discard_item(it), "danger_sm").pack(side="right")
+        return row_outer
+
+    def _ask_feed_dest(self):
+        """Modal: destino do salvamento (Salvos geral ou Salvos + colecao).
+        Retorna (confirmou, col_id_ou_None)."""
+        cols = waitqueue.load_collections()
+        ids = [None] + [c.get("id") for c in cols]
+        result = [(False, None)]
+        dlg = tk.Toplevel(self)
+        dlg.title("Salvar publicação")
+        dlg.resizable(False, False)
+        dlg.transient(self)
+        dlg.grab_set()
+        dlg.attributes("-topmost", True)
+        dlg.configure(bg=PANEL)
+        tk.Label(dlg, text="Salvar esta publicação em:", bg=PANEL, fg=TXT_B,
+                 font=FONT_B).pack(padx=26, pady=(18, 8))
+        combo = ttk.Combobox(dlg, state="readonly", font=FONT_B,
+                             values=["Salvos (geral)"] + [f"Salvos + {c.get('name', '?')}" for c in cols])
+        combo.current(0)
+        combo.pack(fill="x", padx=26, ipady=3)
+        btn_row = tk.Frame(dlg, bg=PANEL)
+        btn_row.pack(pady=(16, 18))
+
+        def ok():
+            idx = combo.current()
+            result[0] = (True, ids[idx] if 0 <= idx < len(ids) else None)
+            dlg.destroy()
+
+        self._btn(btn_row, "CANCELAR", dlg.destroy, "secondary").pack(side="left", padx=(0, 10))
+        self._btn(btn_row, "SALVAR", ok, "primary").pack(side="left")
+        self.update_idletasks()
+        dlg.update_idletasks()
+        w, h = 380, 170
+        x = self.winfo_x() + (self.winfo_width() - w) // 2
+        y = self.winfo_y() + (self.winfo_height() - h) // 2
+        dlg.geometry(f"{w}x{h}+{x}+{y}")
+        dlg.wait_window()
+        return result[0]
+
+    def _feed_save_item(self, item: dict):
+        """Salvar do feed = pipeline existente em modo fila (baixa via SnapInsta,
+        checa repetidas) + colecao de destino. No sucesso o item sai do feed."""
+        if getattr(self, "_metrics_busy", False) or str(self.btn_start["state"]) == "disabled":
+            self._show_toast("Aguarde o processo atual terminar.", 4000, ERR_BG, ERR_FG)
+            return
+        if getattr(self, "_feed_collect_busy", False):
+            self._show_toast("Aguarde (ou pare) a coleta para salvar.", 4000, ERR_BG, ERR_FG)
+            return
+        db = self.cfg.get("db_folder")
+        if not db or not Path(db).is_dir():
+            self._show_toast("Selecione a Pasta de Destino primeiro.", 4000, ERR_BG, ERR_FG)
+            return
+        ok, dest = self._ask_feed_dest()
+        if not ok:
+            return
+        self.btn_start.config(state="disabled")
+        self.btn_paste_clear.config(state="disabled")
+        self.progress["value"] = 0
+        self.lbl_status.config(text=STEPS[0])
+        self.clear_log()
+        self._feed_log(f"Salvando {item.get('shortcode', '?')} nos Salvos… "
+                       "(progresso na aba Filtro por Link)")
+        threading.Thread(
+            target=self._run_pipeline,
+            args=(item.get("url", ""), Path(db), "queue", dest),
+            kwargs={"feed_mark": (self._feed_id, item.get("id", ""))},
+            daemon=True,
+        ).start()
+
+    def _send_entry_to_collection_folder(self, entry: dict):
+        """Materializa a publicacao na PASTA da colecao aberta: cria (se preciso)
+        '<Pasta de Destino>\\<Nome da Colecao> <data de criacao>' e salva as imagens
+        na proxima subpasta numerada — util p/ produtos/estrategias em sequencia."""
+        col = next((c for c in waitqueue.load_collections()
+                    if c.get("id") == getattr(self, "_q_view_col", None)), None)
+        if col is None:
+            return
+        db = self.cfg.get("db_folder")
+        if not db or not Path(db).is_dir():
+            self._show_toast("Selecione a Pasta de Destino primeiro.", 4000, ERR_BG, ERR_FG)
+            return
+        images = waitqueue.entry_images(entry)
+        if not images:
+            self._show_toast("Imagens não encontradas.", 4000, ERR_BG, ERR_FG)
+            return
+        created = (col.get("created", "") or "").split(" ")[0].replace("/", "-")
+        folder_name = f"{col.get('name', 'Coleção')} {created}".strip()
+        if not self._confirm_dialog(
+            "Enviar para a pasta da coleção",
+            f"Salvar '{entry.get('shortcode', '?')}' na pasta \"{folder_name}\" "
+            "(próxima subpasta numerada) e removê-la dos Salvos?",
+        ):
+            return
+        folder = Path(db) / folder_name
+        folder.mkdir(parents=True, exist_ok=True)
+        nums = [int(d.name) for d in folder.iterdir() if d.is_dir() and d.name.isdigit()]
+        slot = folder / str(max(nums) + 1 if nums else 1)
+        slot.mkdir()
+        organizer.save_media_to_slot(slot, images)
+        waitqueue.remove_from_queue(entry.get("id", ""))
+        self._reload_queue_panel()
+        self._show_toast(f"Enviada para {folder_name}\\{slot.name}", 3500, OK_BG, OK_FG)
+
+    def _feed_discard_item(self, item: dict):
+        """Descarta do feed — vira exemplo NEGATIVO do filtro de gosto (Fase 2)."""
+        feedinbox.set_item_status(self._feed_id, item.get("id", ""), "discarded")
+        self._reload_feed_view(keep_scroll=True)
+        self._show_toast("Descartada — o filtro aprende com isso.", 2500, OK_BG, OK_FG)
+
+    # ------------------------------------------------------------------
     # Aba configuracoes
     # ------------------------------------------------------------------
 
     def _build_settings_tab(self, page):
         PAD = {"padx": 12, "pady": (10, 0)}
+
+        # A aba inteira rola (os cards passaram da altura da janela): canvas +
+        # scrollbar + rodinha do mouse, no mesmo padrao do Historico/Salvos
+        canvas = tk.Canvas(page, borderwidth=0, highlightthickness=0, bg=BG)
+        sb = ttk.Scrollbar(page, orient="vertical", command=canvas.yview)
+        canvas.configure(yscrollcommand=sb.set)
+        inner = tk.Frame(canvas, bg=BG)
+        inner_id = canvas.create_window((0, 0), window=inner, anchor="nw")
+        canvas.pack(side="left", fill="both", expand=True)
+        sb.pack(side="right", fill="y")
+        inner.bind(
+            "<Configure>",
+            lambda e, c=canvas: c.configure(scrollregion=c.bbox("all")),
+        )
+        canvas.bind(
+            "<Configure>",
+            lambda e, c=canvas, i=inner_id: c.itemconfigure(i, width=e.width),
+        )
+        canvas.bind("<Enter>", lambda e, c=canvas: c.bind_all(
+            "<MouseWheel>",
+            lambda ev, cc=c: cc.yview_scroll(int(-1 * (ev.delta / 120)), "units")))
+        canvas.bind("<Leave>", lambda e, c=canvas: c.unbind_all("<MouseWheel>"))
+        page = inner   # daqui pra baixo, todos os cards entram na area rolavel
 
         # Card: pasta de destino (onde as pastas dos dias sao criadas / base de comparacao)
         outer0, card0 = self._make_card(page, "Pasta de Destino")
@@ -1612,6 +2107,42 @@ class App(tk.Tk):
             purge_row, "Apagar caches de hash", self._purge_hash_caches, "secondary"
         )
         self.btn_purge_hashes.pack(side="right", padx=(10, 0))
+
+        # Card: logins do Instagram (uma sessao de navegador por funcao)
+        outer_lg, card_lg = self._make_card(page, "Logins do Instagram (por função)")
+        outer_lg.pack(fill="x", **PAD)
+        tk.Label(
+            card_lg,
+            text="Cada função usa um navegador com sessão própria. Abra o navegador da "
+                 "função para logar/deslogar quando quiser — a sessão fica salva e é usada "
+                 "automaticamente nas próximas vezes.",
+            font=FONT_S, bg=PANEL, fg=TXT_M, anchor="w", wraplength=520, justify="left",
+        ).pack(fill="x", pady=(0, 8))
+        self._login_btns = {}
+        self._login_status_lbls = {}
+        for kind, title, desc in [
+            ("analysis", "Análise por Link (métricas)",
+             "Conta usada para buscar curtidas/comentários das publicações analisadas"),
+            ("feed", "Feed Especial (conta-isca)",
+             "Conta cujo feed o robô rola para captar publicações do seu gosto"),
+            ("publish", "Programar Publicações",
+             "Inativo — reservado para a futura função de agendar posts"),
+        ]:
+            r = tk.Frame(card_lg, bg=PANEL)
+            r.pack(fill="x", pady=(4, 0))
+            box = tk.Frame(r, bg=PANEL)
+            box.pack(side="left", fill="x", expand=True)
+            tk.Label(box, text=title, font=FONT_B, bg=PANEL, fg=TXT_H,
+                     anchor="w").pack(fill="x")
+            st = tk.Label(box, text=desc, font=FONT_S, bg=PANEL, fg=TXT_M,
+                          anchor="w", wraplength=380, justify="left")
+            st.pack(fill="x")
+            self._login_status_lbls[kind] = st
+            b = self._btn(r, "Abrir navegador",
+                          lambda k=kind: self._open_login_browser(k), "secondary")
+            b.pack(side="right", padx=(10, 0))
+            self._login_btns[kind] = b
+        self._login_btns["publish"].config(state="disabled", text="Em breve")
 
         # Card: aparencia (tema claro / escuro)
         outer4, card4 = self._make_card(page, "Aparência")
@@ -1816,6 +2347,112 @@ class App(tk.Tk):
             self.after(0, fin)
 
         threading.Thread(target=worker, daemon=True).start()
+
+    # ------------------------------------------------------------------
+    # Logins do Instagram (uma sessao de navegador por funcao)
+    # ------------------------------------------------------------------
+
+    _LOGIN_PROFILES = {
+        "analysis": lambda: downloader.PROFILE_DIR,
+        "feed": lambda: feedbot.PROFILE_DIR,
+    }
+
+    def _open_login_browser(self, kind: str):
+        """Abre o navegador vinculado a funcao para o usuario logar/deslogar.
+        A sessao fica salva no perfil e e usada automaticamente depois."""
+        if getattr(self, "_login_browser_busy", False):
+            self._show_toast("Feche o navegador de login que já está aberto.", 4000, ERR_BG, ERR_FG)
+            return
+        if kind == "analysis":
+            if getattr(self, "_metrics_busy", False) or str(self.btn_start["state"]) == "disabled":
+                self._show_toast("Aguarde o processo que usa este navegador terminar.",
+                                 4000, ERR_BG, ERR_FG)
+                return
+        elif kind == "feed":
+            if getattr(self, "_feed_collect_busy", False):
+                self._show_toast("Pare a coleta do feed antes de mexer neste login.",
+                                 4000, ERR_BG, ERR_FG)
+                return
+        else:
+            return   # publish: inativo por enquanto
+        profile = self._LOGIN_PROFILES[kind]()
+        self._login_browser_busy = True
+        for b in getattr(self, "_login_btns", {}).values():
+            try:
+                b.config(state="disabled")
+            except tk.TclError:
+                pass
+        self._set_login_status(kind, "abrindo o navegador…")
+        threading.Thread(target=self._run_login_browser, args=(kind, profile), daemon=True).start()
+
+    def _set_login_status(self, kind: str, text: str):
+        lbl = getattr(self, "_login_status_lbls", {}).get(kind)
+        if lbl is not None:
+            try:
+                lbl.config(text=text)
+            except tk.TclError:
+                pass
+
+    def _run_login_browser(self, kind: str, profile_dir):
+        from playwright.sync_api import sync_playwright
+        from playwright_stealth import Stealth
+
+        def status(t):
+            self.after(0, lambda: self._set_login_status(kind, t))
+
+        logged = None
+        try:
+            Path(profile_dir).mkdir(parents=True, exist_ok=True)
+            with sync_playwright() as p:
+                ctx = p.chromium.launch_persistent_context(
+                    user_data_dir=str(profile_dir),
+                    channel="chrome",
+                    headless=False,
+                    viewport={"width": 1100, "height": 800},
+                    locale="pt-BR",
+                    timezone_id="America/Sao_Paulo",
+                    args=["--disable-blink-features=AutomationControlled"],
+                )
+                Stealth().apply_stealth_sync(ctx)
+                page = ctx.pages[0] if ctx.pages else ctx.new_page()
+                try:
+                    page.goto("https://www.instagram.com/",
+                              wait_until="domcontentloaded", timeout=60000)
+                except Exception:
+                    pass
+                # Fica de olho ate o usuario FECHAR a janela do navegador
+                while True:
+                    try:
+                        if not ctx.pages:
+                            break
+                        logged = downloader._instagram_logged_in(ctx)
+                        status(("✓ Sessão ativa" if logged else "✗ Sem login")
+                               + " — feche a janela do navegador para concluir")
+                        ctx.pages[0].wait_for_timeout(1500)
+                    except Exception:
+                        break
+                try:
+                    ctx.close()
+                except Exception:
+                    pass
+            if logged is True:
+                status("✓ Sessão salva — esta função vai entrar sozinha nas próximas vezes")
+            elif logged is False:
+                status("✗ Sem login salvo — a função vai pedir login quando rodar")
+            else:
+                status("Estado desconhecido — abra de novo para conferir")
+        except Exception as exc:
+            status(f"Erro ao abrir o navegador: {exc}")
+        finally:
+            self._login_browser_busy = False
+
+            def fin():
+                for k, b in getattr(self, "_login_btns", {}).items():
+                    try:
+                        b.config(state=("disabled" if k == "publish" else "normal"))
+                    except tk.TclError:
+                        pass
+            self.after(0, fin)
 
     def start_cross_import(self):
         src = getattr(self, "_src_folder", "")
@@ -2579,9 +3216,9 @@ class App(tk.Tk):
         self._q_list_combo.bind("<<ComboboxSelected>>", self._on_cross_list_selected)
         cr_row = tk.Frame(self._q_controls, bg=BG)
         cr_row.pack(fill="x", padx=12, pady=(6, 2))
-        self._btn(cr_row, "↻  Recarregar", self._refresh_cross_list, "secondary_sm").pack(
-            side="left", fill="x", expand=True
-        )
+        self._cross_reload_btn = self._btn(
+            cr_row, "↻  Recarregar", self._refresh_cross_list, "secondary_sm")
+        self._cross_reload_btn.pack(side="left", fill="x", expand=True)
         self._btn(cr_row, "🗑 Apagar Lista", self._delete_cross_list, "danger_sm").pack(
             side="left", fill="x", expand=True, padx=(6, 0)
         )
@@ -3150,6 +3787,13 @@ class App(tk.Tk):
             btns, "🔖",
             lambda ent=entry: self._edit_entry_collections(ent), "secondary_sm",
         ).pack(side="left", padx=(4, 0))
+        # Dentro de uma colecao: materializar na PASTA da colecao (sequencias)
+        if getattr(self, "_q_view_mode", "main") == "collection":
+            self._btn(
+                btns, "📂 Pasta",
+                lambda ent=entry: self._send_entry_to_collection_folder(ent),
+                "secondary_sm",
+            ).pack(side="left", padx=(4, 0))
         self._btn(
             btns, "Remover da Espera",
             lambda ent=entry: self._remove_queue_entry(ent), "danger_sm",
@@ -3675,7 +4319,8 @@ class App(tk.Tk):
         ).start()
 
     def _run_pipeline(self, link: str, db_folder: Path, mode: str = "use",
-                      dest_col: "str | None" = None):
+                      dest_col: "str | None" = None,
+                      feed_mark: "tuple | None" = None):
         tmp_dir = Path(tempfile.mkdtemp(prefix="instabot_"))
         try:
             self._step(0, "Verificando configuracoes...")
@@ -3763,6 +4408,9 @@ class App(tk.Tk):
                 if dest_col:   # 'Salvar em: Salvos + colecao' escolhido no dropdown
                     waitqueue.set_entry_collections(q_entry.get("id", ""), [dest_col], False)
                     self._log_async("Salva tambem na colecao escolhida.")
+                if feed_mark:  # veio do Feed Especial: marca salva e sai do feed
+                    feedinbox.set_item_status(feed_mark[0], feed_mark[1], "saved")
+                    self.after(0, lambda: self._reload_feed_view(keep_scroll=True))
                 self._step(5, "Adicionado à fila de espera!")
                 self._log_async("Publicacao estacionada na fila de espera.")
                 self.after(0, self._on_queued)

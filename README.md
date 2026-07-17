@@ -19,6 +19,9 @@ O app tem **dois filtros**, cada um numa aba (mais a aba de Configurações):
 ### 🔁 Filtro Entre Contas
 Analisa a pasta **inteira de outra conta** e monta listas reutilizáveis: cada publicação é comparada com a sua Pasta de Destino (as repetidas ficam em cinza), e você reaproveita conteúdo entre diferentes clientes. Detecta ainda o tipo de **CTA** de cada publicação por OCR (Comentar / Seguir / Guardar).
 
+### 🌱 Feed Especial
+Um "Instagram saudável" dentro do app: um robô rola o feed de uma **conta-isca** (com o algoritmo moldado por você) e capta só as publicações que passam nos seus filtros — faixa de curtidas **E** comentários, somente carrosséis. As aprovadas aparecem numa aba com rolagem estilo Instagram, de onde você salva direto nos Salvos/Coleções ou descarta. As estratégias de leitura do robô ficam documentadas no [ESTRATEGIAS.md](ESTRATEGIAS.md); as pendências, no [TODO.md](TODO.md).
+
 Tem também **tema claro/escuro**, **Fila de Espera** reordenável por arraste, **Histórico** navegável por dia (timeline) e painéis redimensionáveis.
 
 > 💡 Observações de operação e ideias futuras ficam registradas no [IDEIAS.md](IDEIAS.md) — documento vivo que acompanha o desenvolvimento.
@@ -166,6 +169,14 @@ As listas ficam no painel da direita, com um **seletor (dropdown)** para alterna
 
 O **Histórico de Envios** é compartilhado entre as duas abas — funciona como a *timeline do dia*, para você montar a rotina misturando publicações do Filtro por Link e do Filtro Entre Contas.
 
+### Feed Especial (aba Feed)
+
+1. Em **Configurações → Logins do Instagram**, abra o navegador do **Feed Especial (conta-isca)** e faça login na conta cujo algoritmo você moldou para o nicho
+2. Na aba **Feed**, ajuste os filtros (curtidas de X a Y **e** comentários ≥ Z, somente carrosséis, minutos de coleta) e clique em **▶ Coletar agora**
+3. O robô rola o feed da conta-isca com comportamento humano ("jardineiro do algoritmo": demora mais nas publicações do seu gosto), lendo curtidas/comentários em pt/es/en. Os LOGs mostram cada aprovação/recusa com motivo, o status vira um cronômetro (⏱ início · decorrido · restante) e no fim sai um **Resumo** de diagnóstico
+4. As aprovadas aparecem no feed com capa grande: **💾 Salvar em…** baixa a publicação pelo pipeline normal (checando repetidas) e manda para os Salvos/Coleção escolhida; **✕ Descartar** remove (vira exemplo negativo do futuro filtro de gosto)
+5. O buffer guarda até 1000 publicações por feed; **🗑 Limpar feed** zera as descobertas sem afetar o que já foi salvo
+
 ### Tema claro/escuro
 
 Em **Configurações → Aparência**, alterne entre **☀ Claro** e **☾ Escuro**. A troca é aplicada na hora e fica salva para as próximas aberturas.
@@ -210,6 +221,8 @@ As pastas de slot abrem automaticamente em modo **Ícones Grandes** no Explorer 
 | Aparência (tema) | `Claro` | Alterna entre tema claro e escuro (aplica na hora) |
 
 O **preview** na aba de Configurações mostra em tempo real como ficará o nome da pasta.
+
+A aba é **rolável** (rodinha do mouse). No card **Logins do Instagram (por função)**, cada robô tem um navegador com sessão própria — **Análise por Link** (métricas), **Feed Especial** (conta-isca) e **Programar Publicações** (reservado): abra o navegador da função para logar/deslogar quando quiser; a sessão fica salva e é usada automaticamente.
 
 ---
 
@@ -266,12 +279,18 @@ O botão **Resetar** (com confirmação) só aparece na lista de **hoje** com en
 │   │   ├── waiting_queue.json ← metadados da Fila de Espera
 │   │   ├── waiting_queue/     ← imagens estacionadas na Fila de Espera
 │   │   ├── cross_lists.json   ← listas do Filtro Entre Contas
-│   │   └── browser_profile/   ← sessão persistente do Chrome (login Instagram)
+│   │   ├── collections.json   ← coleções dos Salvos
+│   │   ├── feed_inbox.json    ← inbox do Feed Especial (descobertas do robô)
+│   │   ├── feed_media/        ← capas das publicações do Feed Especial
+│   │   ├── browser_profile/   ← sessão do Chrome da Análise por Link
+│   │   └── feedbot_profile/   ← sessão do Chrome da conta-isca (Feed Especial)
 │   ├── config.py              ← leitura e escrita de configurações
 │   ├── crossaccount.py        ← listas nomeadas do Filtro Entre Contas
 │   ├── cta.py                 ← detecção do tipo de CTA por OCR (Tesseract)
 │   ├── dedup.py               ← detecção de duplicatas por hash perceptual
 │   ├── downloader.py          ← automação do SnapInsta.to + coleta de métricas do Instagram
+│   ├── feedbot.py             ← coletor do Feed Especial (rola a conta-isca)
+│   ├── feedinbox.py           ← inbox: contrato entre o coletor e o app
 │   ├── gui.py                 ← interface gráfica (Tkinter)
 │   ├── main.py                ← ponto de entrada
 │   ├── organizer.py           ← criação e gestão das pastas de envio
@@ -280,7 +299,9 @@ O botão **Resetar** (com confirmação) só aparece na lista de **hoje** com en
 │   └── requirements.txt       ← dependências Python
 ├── build.bat                  ← script para gerar o executável
 ├── filtro.spec                ← configuração do PyInstaller
+├── ESTRATEGIAS.md             ← estratégias de leitura do coletor do Feed (status de cada uma)
 ├── IDEIAS.md                  ← observações de operação e ideias futuras (documento vivo)
+├── TODO.md                    ← lista viva de pendências
 └── README.md
 ```
 

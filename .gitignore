@@ -1,15 +1,9 @@
 # Ambiente virtual Python
 instabot/venv/
 
-# Perfil do Chrome (cookies/sessão do navegador)
-instabot/data/browser_profile/
-
-# Dados do usuário (configuração local e histórico)
-instabot/data/config.json
-instabot/data/history.json
-instabot/data/waiting_queue.json
-instabot/data/waiting_queue/
-instabot/data/cross_lists.json
+# Dados do usuário (config, histórico, filas, coleções, feed e sessões do Chrome)
+# A pasta inteira: cada usuário cria a sua — NUNCA commitar
+instabot/data/
 
 # Scripts de depuração (não fazem parte do produto)
 instabot/debug/

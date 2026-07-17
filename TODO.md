@@ -38,9 +38,12 @@ _Atualizado em: 16/07/2026_
 - [ ] Criar conta no **GROK** e avaliar custo — gerar imagens de animações/desenhos e
   recortes de imagens reais com efeitos/texturas/cores diferentes, mantendo a resolução
   e traduzindo para espanhol quando preciso
-- [ ] **Módulo ChatGPT p/ cards finais** (via assinatura, sem API paga): área de listas de
-  scripts salvos como botões (nome + imagem de exemplo), caixa de texto com inserção de
-  imagens de exemplo (2 fixas como base), 5 títulos de capa que identificam o tipo
+- [ ] **Módulo ChatGPT p/ cards finais + LEGENDAS** (via assinatura, sem API paga):
+  - Listas de scripts salvos como **botões** (nome + imagem de exemplo); 5 títulos de capa que identificam o tipo
+  - As caixas de texto dos scripts geram o **card final E a legenda** correspondente
+  - Inserção de até **30 imagens** de contexto por requisição (cortes/uso para o card e para a legenda)
+  - Fluxo: gerar o card final e, na sequência, a legenda **com base numa legenda-exemplo** fornecida
+  - 2 imagens fixas como exemplo-base de tudo
 - [ ] **Varredura de contas parecidas** (250k–20M seguidores, contexto similar aos
   exemplos) → separar os achados em coleções diferentes
 

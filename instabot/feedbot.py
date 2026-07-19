@@ -91,10 +91,20 @@ _EXTRACT_JS = """
       'button[aria-label*="iguiente"], button[aria-label="Next"]');
     const slides = art.querySelectorAll('ul li img, div[role="presentation"] ul li').length;
     const imgIdx = !!art.querySelector('a[href*="img_index"]');
-    const img = art.querySelector('img[src^="http"]');
+    // Capa REAL do post: o MAIOR <img> renderizado do card. (O primeiro <img>
+    // do article e o avatar do autor — era o bug das capas erradas.)
+    let bestImg = '', bestArea = 0;
+    for (const im of art.querySelectorAll('img')) {
+      const ir = im.getBoundingClientRect();
+      const area = ir.width * ir.height;
+      if (ir.width >= 80 && area > bestArea) {
+        bestArea = area;
+        bestImg = im.currentSrc || im.src || '';
+      }
+    }
     out.push({
       sc: m[1],
-      img: img ? img.src : '',
+      img: bestImg,
       text: (art.innerText || '').slice(0, 1500),
       video: isVideo,
       carousel: !!nextBtn || slides > 1 || imgIdx,
@@ -230,7 +240,13 @@ def collect(feed_id: str = None, minutes: int = None, progress_cb=None,
             viewport={"width": 1280, "height": 900},
             locale="pt-BR",
             timezone_id="America/Sao_Paulo",
-            args=["--disable-blink-features=AutomationControlled"],
+            args=[
+                "--disable-blink-features=AutomationControlled",
+                # Janelas por cima NAO pausam o render/lazy-load do feed — a
+                # coleta segue mesmo com o navegador coberto (melhor que pausar)
+                "--disable-backgrounding-occluded-windows",
+                "--disable-renderer-backgrounding",
+            ],
         )
         stealth.apply_stealth_sync(context)
         page = context.pages[0] if context.pages else context.new_page()
@@ -244,8 +260,21 @@ def collect(feed_id: str = None, minutes: int = None, progress_cb=None,
                 page.goto("https://www.instagram.com/", wait_until="domcontentloaded", timeout=60000)
                 page.wait_for_timeout(3000)
 
+            # 🛡 ESCUDO: a janela do robo passa a IGNORAR mouse/teclado do usuario
+            # (rolagem/cliques manuais nao atrapalham a coleta). Se a roda do bot
+            # tambem for bloqueada pelo escudo, ha troca automatica p/ rolagem JS.
+            try:
+                cdp = context.new_cdp_session(page)
+                cdp.send("Input.setIgnoreInputEvents", {"ignore": True})
+                _report(progress_cb, "🛡 Janela blindada: mouse/teclado manuais não afetam a coleta.")
+            except Exception:
+                _report(progress_cb, "Não foi possível blindar a janela — seguindo sem o escudo.")
+
             sess = requests.Session()
             deadline = time.monotonic() + minutes * 60
+            js_scroll = False
+            last_y = None
+            stuck = 0
             seen = 0
             rejects = {}          # motivo -> quantas (resumo de diagnostico no fim)
             diag_snippets = 0     # amostras de texto quando as curtidas nao sao lidas
@@ -306,7 +335,30 @@ def collect(feed_id: str = None, minutes: int = None, progress_cb=None,
                 # Jardineiro do algoritmo: demora nas boas, passa rapido nas ruins
                 page.wait_for_timeout(int(random.uniform(2500, 5000) if on_taste
                                           else random.uniform(600, 1400)))
-                page.mouse.wheel(0, random.randint(500, 900))
+                # Rolagem: roda do mouse por padrao; se o escudo tambem travar a
+                # roda do bot (scrollY parado 3 ciclos), troca p/ rolagem via JS
+                if not js_scroll:
+                    try:
+                        y = page.evaluate("window.scrollY")
+                    except Exception:
+                        y = None
+                    if y is not None:
+                        if last_y is not None and abs(y - last_y) < 5:
+                            stuck += 1
+                            if stuck >= 3:
+                                js_scroll = True
+                                _report(progress_cb,
+                                        "Roda do mouse não avançou — trocando para rolagem via página (JS).")
+                        else:
+                            stuck = 0
+                        last_y = y
+                if js_scroll:
+                    try:
+                        page.evaluate(f"window.scrollBy(0, {random.randint(500, 900)})")
+                    except Exception:
+                        pass
+                else:
+                    page.mouse.wheel(0, random.randint(500, 900))
             if rejects:
                 parts = " · ".join(f"{k}: {v}" for k, v in
                                    sorted(rejects.items(), key=lambda kv: -kv[1]))

@@ -25,6 +25,7 @@ import waitqueue
 from paths import DATA_DIR, ASSETS_DIR
 
 HISTORY_FILE  = DATA_DIR   / "history.json"
+REPORTS_DIR   = DATA_DIR   / "relatorios"   # todos os relatorios, em subpastas por tipo
 ICON_WINDOW   = ASSETS_DIR / "icon.ico"        # icone da janela + taskbar (ico)
 LOGO_HEADER   = ASSETS_DIR / "logo_header.png" # logo no header do app (png)
 THUMB_SIZE = (64, 64)
@@ -307,6 +308,7 @@ class App(tk.Tk):
         for key, label in [("feed", "  Feed  "),
                            ("link", "  Filtro por Link  "),
                            ("cross", "  Filtro Entre Contas  "),
+                           ("reports", "  Relatórios  "),
                            ("settings", "  Configurações  ")]:
             col = tk.Frame(tab_bar, bg=PANEL)
             col.pack(side="left")
@@ -342,6 +344,7 @@ class App(tk.Tk):
             ("feed",     self._build_feed_tab),
             ("link",     self._build_link_tab),
             ("cross",    self._build_cross_tab),
+            ("reports",  self._build_reports_tab),
             ("settings", self._build_settings_tab),
         ]:
             page = tk.Frame(self._left, bg=BG)
@@ -364,6 +367,8 @@ class App(tk.Tk):
             self._refresh_queue_panel_context()
         if name == "feed" and hasattr(self, "_feed_inner"):
             self._reload_feed_view()
+        if name == "reports":
+            self._populate_report_lists()
 
     # ------------------------------------------------------------------
     # Chave seletora de modo (usar agora / fila de espera)
@@ -917,11 +922,19 @@ class App(tk.Tk):
             tk.Label(info, text="⚠ Já utilizada (no histórico)", anchor="w",
                      font=FONT_S, bg=PANEL, fg=BDF).pack(fill="x")
         elif item.get("duplicate"):
-            loc = item.get("dup_location", "")
-            base = "Repetida (manual)" if item.get("manual") == "dup" else "Repetida"
-            txt = f"{base} — em {loc}" if loc else (
-                base if item.get("manual") == "dup" else "Repetida (já no destino)")
-            tk.Label(info, text=txt, anchor="w", font=FONT_S, bg=PANEL, fg=BDF).pack(fill="x")
+            locs = item.get("dup_locations") or (
+                [item.get("dup_location")] if item.get("dup_location") else [])
+            manual = (item.get("manual") == "dup")
+            if locs:
+                txt = f"⚠ REPETIDAS: {len(locs)} ▾" + ("  (manual)" if manual else "")
+            else:
+                txt = "Repetida (manual)" if manual else "Repetida (já no destino)"
+            rep_lbl = tk.Label(info, text=txt, anchor="w", font=FONT_S, bg=PANEL,
+                               fg=BDF, cursor=("hand2" if locs else "arrow"))
+            rep_lbl.pack(fill="x")
+            if locs:
+                # passar o mouse abre a listinha com um botao 📁 por pasta repetida
+                rep_lbl.bind("<Enter>", lambda e, l=list(locs): self._show_dup_popup(e, l))
         elif item.get("manual") == "ok":
             tk.Label(info, text="✓ Verificada não repetida (manual)", anchor="w",
                      font=FONT_S, bg=PANEL, fg=ACCENT).pack(fill="x")
@@ -983,6 +996,7 @@ class App(tk.Tk):
             return
         it["duplicate"] = True
         it["dup_location"] = loc
+        it["dup_locations"] = [loc] if loc else []
         it["manual"] = "dup"
         crossaccount.save(data)
         self._render_cross_list()
@@ -996,10 +1010,66 @@ class App(tk.Tk):
             return
         it["duplicate"] = False
         it["dup_location"] = ""
+        it["dup_locations"] = []
         it["manual"] = "ok"
         crossaccount.save(data)
         self._render_cross_list()
         self._show_toast("Marcada como disponível (manual).", 3000, OK_BG, OK_FG)
+
+    def _show_dup_popup(self, event, locs: list):
+        """Mini janela ao passar o mouse no 'REPETIDAS: X': um botao 📁 por
+        pasta onde a publicacao ja existe (abre o diretorio no Explorer)."""
+        self._close_dup_popup()
+        pop = tk.Toplevel(self)
+        pop.overrideredirect(True)
+        pop.attributes("-topmost", True)
+        pop.configure(bg=BORDER)
+        inner = tk.Frame(pop, bg=PANEL, padx=8, pady=7)
+        inner.pack(padx=1, pady=1)
+        tk.Label(inner, text="REPETIDA EM:", font=FONT_LBL, bg=PANEL,
+                 fg=TXT_M, anchor="w").pack(fill="x", pady=(0, 4))
+        db = self.cfg.get("db_folder", "")
+        for loc in locs[:12]:
+            path = str(Path(db) / loc) if db else ""
+            self._btn(
+                inner, f"📁 {loc}",
+                lambda p=path: (self._close_dup_popup(), self._open_folder(p)),
+                "secondary_sm",
+            ).pack(fill="x", pady=1)
+        if len(locs) > 12:
+            tk.Label(inner, text=f"… e mais {len(locs) - 12}", font=FONT_M,
+                     bg=PANEL, fg=TXT_M).pack(fill="x")
+        pop.geometry(f"+{event.x_root + 14}+{event.y_root + 10}")
+        self._dup_popup = pop
+        self._dup_popup_anchor = event.widget
+
+        def vigia():
+            """Fecha quando o mouse sair do rotulo E do popup."""
+            p = getattr(self, "_dup_popup", None)
+            if p is not pop:
+                return
+            try:
+                x, y = self.winfo_pointerxy()
+                w = self.winfo_containing(x, y)
+                dentro = w is not None and (
+                    str(w).startswith(str(pop)) or w is self._dup_popup_anchor)
+                if dentro:
+                    pop.after(350, vigia)
+                else:
+                    self._close_dup_popup()
+            except Exception:
+                self._close_dup_popup()
+
+        pop.after(600, vigia)
+
+    def _close_dup_popup(self):
+        pop = getattr(self, "_dup_popup", None)
+        if pop is not None:
+            try:
+                pop.destroy()
+            except Exception:
+                pass
+            self._dup_popup = None
 
     def _day_folder_names(self) -> list:
         """Nomes das pastas de dia da Pasta de Destino, mais recentes primeiro."""
@@ -1103,6 +1173,7 @@ class App(tk.Tk):
                 # de onde veio na outra conta (mostrado no Historico)
                 "src_label": item.get("folder", ""),
                 "list_name": lst.get("name", ""),
+                "cta": item.get("cta", ""),   # descricao da CTA viaja p/ o Historico
             },
         )
         crossaccount.set_item_field(list_id, item_id, "used", True)
@@ -1140,6 +1211,9 @@ class App(tk.Tk):
         if not match:
             return ""
         folder, _dist = match
+        return self._folder_label(folder, db_folder)
+
+    def _folder_label(self, folder, db_folder) -> str:
         try:
             return str(Path(folder).relative_to(db_folder))
         except ValueError:
@@ -1212,13 +1286,17 @@ class App(tk.Tk):
                 if i == 1 or i == total or i % 10 == 0:
                     self._cross_log(f"  reanalisando {i} de {total}")
                 hashes = dedup.hashes_from_hex(it.get("hashes", []))
-                match = dedup.find_duplicate_post(hashes, dest_index, threshold,
-                                                  cta_cards=cta_n, threshold_loose=t_loose)
-                is_dup = match is not None
-                new_loc = self._dup_location_label(match, db_folder) if is_dup else ""
-                if bool(it.get("duplicate")) != is_dup or it.get("dup_location", "") != new_loc:
+                dups = dedup.find_all_duplicates(hashes, dest_index, threshold,
+                                                 cta_cards=cta_n, threshold_loose=t_loose)
+                labels = [self._folder_label(f, db_folder) for f in dups]
+                is_dup = bool(labels)
+                new_loc = labels[0] if labels else ""
+                if (bool(it.get("duplicate")) != is_dup
+                        or it.get("dup_location", "") != new_loc
+                        or it.get("dup_locations") != labels):
                     it["duplicate"] = is_dup
                     it["dup_location"] = new_loc
+                    it["dup_locations"] = labels
                     changed += 1
             # Transacional (estilo React Router): a analise antiga so e substituida
             # quando o Recarregar TERMINA. Cancelou no meio -> descarta o parcial
@@ -1939,6 +2017,206 @@ class App(tk.Tk):
         self._show_toast("Descartada — o filtro aprende com isso.", 2500, OK_BG, OK_FG)
 
     # ------------------------------------------------------------------
+    # Aba: Relatorios
+    # ------------------------------------------------------------------
+
+    def _build_reports_tab(self, page):
+        PAD = {"padx": 12, "pady": (10, 0)}
+        outer, card = self._make_card(page, "Relatórios do Sistema")
+        outer.pack(fill="x", **PAD)
+        tk.Label(
+            card,
+            text="Todos os relatórios são salvos em data\\relatorios, em SUBPASTAS por "
+                 "tipo, com a data de geração no nome do arquivo.",
+            font=FONT_S, bg=PANEL, fg=TXT_M, anchor="w", wraplength=520, justify="left",
+        ).pack(fill="x", pady=(0, 10))
+
+        r1 = tk.Frame(card, bg=PANEL)
+        r1.pack(fill="x", pady=(0, 8))
+        b1 = tk.Frame(r1, bg=PANEL)
+        b1.pack(side="left", fill="x", expand=True)
+        tk.Label(b1, text="📊 Relatório Geral", font=FONT_B, bg=PANEL, fg=TXT_H,
+                 anchor="w").pack(fill="x")
+        tk.Label(b1, text="Grupos de repetidas DENTRO da Pasta de Destino + repetidas "
+                          "(com os dias onde existem) e disponíveis das listas Entre Contas",
+                 font=FONT_S, bg=PANEL, fg=TXT_M, anchor="w", wraplength=380,
+                 justify="left").pack(fill="x")
+        sel_row = tk.Frame(b1, bg=PANEL)
+        sel_row.pack(fill="x", pady=(5, 0))
+        tk.Label(sel_row, text="Base comparada:", font=FONT_S, bg=PANEL,
+                 fg=TXT_B).pack(side="left")
+        self._rep_list_ids = [None]
+        self._rep_list_combo = ttk.Combobox(sel_row, state="readonly",
+                                            font=FONT_S, width=28)
+        self._rep_list_combo.pack(side="left", padx=(6, 0))
+        self._populate_report_lists()
+        self.btn_report_gen = self._btn(r1, "Gerar Relatório", self._general_report_flow, "primary")
+        self.btn_report_gen.pack(side="right", padx=(10, 0))
+
+        r2 = tk.Frame(card, bg=PANEL)
+        r2.pack(fill="x", pady=(0, 8))
+        b2 = tk.Frame(r2, bg=PANEL)
+        b2.pack(side="left", fill="x", expand=True)
+        tk.Label(b2, text="🔎 Auditoria de Repetidas", font=FONT_B, bg=PANEL, fg=TXT_H,
+                 anchor="w").pack(fill="x")
+        tk.Label(b2, text="Compara a Pasta de Destino com ela MESMA e lista os grupos "
+                          "de cópias (o mesmo botão das Configurações)",
+                 font=FONT_S, bg=PANEL, fg=TXT_M, anchor="w", wraplength=380,
+                 justify="left").pack(fill="x")
+        self.btn_audit2 = self._btn(r2, "🔎 Auditar Repetidas", self._audit_duplicates_flow, "secondary")
+        self.btn_audit2.pack(side="right", padx=(10, 0))
+
+        r3 = tk.Frame(card, bg=PANEL)
+        r3.pack(fill="x")
+        tk.Label(r3, text="📁 Pasta dos relatórios gerados", font=FONT_B, bg=PANEL,
+                 fg=TXT_B, anchor="w").pack(side="left", fill="x", expand=True)
+        self._btn(r3, "Abrir Pasta de Relatórios", self._open_reports_folder,
+                  "secondary").pack(side="right", padx=(10, 0))
+
+    def _open_reports_folder(self):
+        REPORTS_DIR.mkdir(parents=True, exist_ok=True)
+        self._open_folder(str(REPORTS_DIR))
+
+    def _populate_report_lists(self):
+        """Caixa 'Base comparada': todas as listas Entre Contas ou uma especifica."""
+        if not hasattr(self, "_rep_list_combo"):
+            return
+        summary = crossaccount.lists_summary()
+        prev = None
+        cur = self._rep_list_combo.current()
+        if 0 <= cur < len(getattr(self, "_rep_list_ids", [])):
+            prev = self._rep_list_ids[cur]
+        self._rep_list_ids = [None] + [lid for (lid, _n, _c) in summary]
+        values = (["Todas as listas"]
+                  + [f"{n} ({c})" for (_l, n, c) in summary])
+        try:
+            self._rep_list_combo.config(values=values)
+            idx = self._rep_list_ids.index(prev) if prev in self._rep_list_ids else 0
+            self._rep_list_combo.current(idx)
+        except tk.TclError:
+            pass
+
+    def _general_report_flow(self):
+        """Relatorio Geral: auditoria da Pasta de Destino + situacao de cada
+        lista Entre Contas (repetidas com seus dias · disponiveis · utilizadas)."""
+        db = self.cfg.get("db_folder")
+        if not db or not Path(db).is_dir():
+            self._show_toast("Selecione a Pasta de Destino primeiro.", 4000, ERR_BG, ERR_FG)
+            return
+        if getattr(self, "_report_busy", False) or getattr(self, "_audit_busy", False):
+            return
+        if not self._confirm_dialog(
+            "Gerar Relatório Geral",
+            "O relatório varre a Pasta de Destino inteira (auditoria) e todas as "
+            "listas do Entre Contas.\nPode levar alguns minutos na primeira vez. Continuar?",
+        ):
+            return
+        # Base comparada escolhida (todas as listas ou uma especifica)
+        rep_list_id = None
+        idx = self._rep_list_combo.current() if hasattr(self, "_rep_list_combo") else -1
+        if 0 <= idx < len(getattr(self, "_rep_list_ids", [])):
+            rep_list_id = self._rep_list_ids[idx]
+        self._report_busy = True
+        try:
+            self.btn_report_gen.config(state="disabled", text="Gerando…")
+        except tk.TclError:
+            pass
+        threading.Thread(target=self._run_general_report,
+                         args=(Path(db), rep_list_id), daemon=True).start()
+
+    def _run_general_report(self, db_folder: Path, rep_list_id=None):
+        try:
+            thresh = self.cfg.get("hash_threshold", 5)
+            cta_n = self.cfg.get("cta_cards", 2)
+            t_loose = self.cfg.get("hash_threshold_loose", 16)
+
+            def prog(i, n):
+                self.after(0, lambda: self._set_report_btn(f"Gerando… {i}/{n}"))
+
+            groups = dedup.audit_duplicates(db_folder, thresh, cta_n, t_loose, prog)
+            data = crossaccount.load()
+
+            stamp = datetime.now().strftime("%d/%m/%Y %H:%M")
+            lines = [
+                "RELATÓRIO GERAL — REPETIDAS E DISPONÍVEIS",
+                f"Pasta de Destino: {db_folder}",
+                f"Gerado em: {stamp} · limiar {thresh} · CTA {cta_n} · miolo t{t_loose}",
+                "=" * 70,
+                "",
+                f"[1] GRUPOS DE REPETIDAS DENTRO DA PASTA DE DESTINO: {len(groups)}",
+                "",
+            ]
+            if not groups:
+                lines.append("   Nenhum grupo encontrado. 🎉")
+            for gi, g in enumerate(groups, start=1):
+                lines.append(f"   GRUPO {gi} — {len(g)} cópia(s):")
+                for p in g:
+                    lines.append(f"      {self._folder_label(p, db_folder)}")
+                lines.append("")
+
+            lists = data.get("lists", [])
+            if rep_list_id is not None:
+                lists = [l for l in lists if l.get("id") == rep_list_id]
+            base_txt = (f"LISTA '{lists[0].get('name', '?')}'"
+                        if rep_list_id is not None and lists else "TODAS AS LISTAS")
+            lines += ["", f"[2] FILTRO ENTRE CONTAS — BASE COMPARADA: {base_txt}", ""]
+            if not lists:
+                lines.append("   Nenhuma lista analisada ainda.")
+            for lst in lists:
+                items = lst.get("items", [])
+                reps = [it for it in items if it.get("duplicate") and not it.get("used")]
+                avail = [it for it in items
+                         if not it.get("duplicate") and not it.get("used")]
+                used = [it for it in items if it.get("used")]
+                lines.append(f"   LISTA '{lst.get('name', '?')}' — {len(items)} publicações: "
+                             f"{len(reps)} repetidas · {len(avail)} disponíveis · "
+                             f"{len(used)} utilizadas")
+                if reps:
+                    lines.append("      REPETIDAS (e onde já existem):")
+                    for it in reps:
+                        locs = it.get("dup_locations") or (
+                            [it.get("dup_location")] if it.get("dup_location") else [])
+                        onde = "; ".join(locs) if locs else "(local não registrado)"
+                        manual = "  [manual]" if it.get("manual") == "dup" else ""
+                        lines.append(f"         {it.get('folder', '?')}  →  {onde}{manual}")
+                if avail:
+                    lines.append("      DISPONÍVEIS:")
+                    for it in avail:
+                        ctxt = it.get("cta", "")
+                        cta_s = f"  (CTA: {ctxt})" if ctxt and ctxt != "não detectada" else ""
+                        lines.append(f"         {it.get('folder', '?')}{cta_s}")
+                lines.append("")
+
+            fname = datetime.now().strftime("relatorio_geral_%Y-%m-%d_%H%M.txt")
+            report = REPORTS_DIR / "geral" / fname
+            report.parent.mkdir(parents=True, exist_ok=True)
+            report.write_text("\n".join(lines), encoding="utf-8")
+
+            def fin():
+                self._set_report_btn("Gerar Relatório", enable=True)
+                self._show_result_popup(
+                    True, f"Relatório Geral gerado: {len(groups)} grupo(s) no destino + "
+                          f"{len(lists)} lista(s) Entre Contas. Arquivo: geral\\{report.name}")
+                try:
+                    os.startfile(str(report))
+                except Exception:
+                    pass
+            self.after(0, fin)
+        except Exception as exc:
+            def fail(e=exc):
+                self._set_report_btn("Gerar Relatório", enable=True)
+                self._show_result_popup(False, f"Erro no relatório: {e}")
+            self.after(0, fail)
+        finally:
+            self._report_busy = False
+
+    def _set_report_btn(self, text: str, enable: bool = False):
+        try:
+            self.btn_report_gen.config(text=text, state=("normal" if enable else "disabled"))
+        except (tk.TclError, AttributeError):
+            pass
+
+    # ------------------------------------------------------------------
     # Aba configuracoes
     # ------------------------------------------------------------------
 
@@ -2438,8 +2716,8 @@ class App(tk.Tk):
             groups = dedup.audit_duplicates(db_folder, thresh, cta_n, t_loose, prog)
 
             stamp = datetime.now().strftime("%d/%m/%Y %H:%M")
-            fname = datetime.now().strftime("auditoria_repetidas_%Y%m%d_%H%M.txt")
-            report = DATA_DIR / fname
+            fname = datetime.now().strftime("auditoria_repetidas_%Y-%m-%d_%H%M.txt")
+            report = REPORTS_DIR / "auditoria" / fname
             lines = [
                 "AUDITORIA DE REPETIDAS — Pasta de Destino x ela mesma",
                 f"Pasta: {db_folder}",
@@ -2481,10 +2759,13 @@ class App(tk.Tk):
             self._audit_busy = False
 
     def _set_audit_btn(self, text: str, enable: bool = False):
-        try:
-            self.btn_audit.config(text=text, state=("normal" if enable else "disabled"))
-        except tk.TclError:
-            pass
+        # o botao existe nas Configuracoes E na aba Relatorios — atualiza os dois
+        for b in (getattr(self, "btn_audit", None), getattr(self, "btn_audit2", None)):
+            if b is not None:
+                try:
+                    b.config(text=text, state=("normal" if enable else "disabled"))
+                except tk.TclError:
+                    pass
 
     # ------------------------------------------------------------------
     # Logins do Instagram (uma sessao de navegador por funcao)
@@ -2635,10 +2916,10 @@ class App(tk.Tk):
                     self._cross_log(f"  analisando a pasta {i} de {total}")
                 images = crossaccount._sorted_images(folder)
                 hashes = dedup.hash_new_media(images)
-                match = dedup.find_duplicate_post(hashes, dest_index, threshold,
-                                                  cta_cards=cta_n, threshold_loose=t_loose)
-                is_dup = match is not None
-                dup_location = self._dup_location_label(match, db_folder) if is_dup else ""
+                dups = dedup.find_all_duplicates(hashes, dest_index, threshold,
+                                                 cta_cards=cta_n, threshold_loose=t_loose)
+                dup_labels = [self._folder_label(f, db_folder) for f in dups]
+                is_dup = bool(dup_labels)
                 if is_dup:
                     dup_count += 1
                 try:
@@ -2647,7 +2928,9 @@ class App(tk.Tk):
                     folder_label = folder.name
                 items.append(crossaccount.new_item(
                     folder, folder_label, [str(h) for h in hashes],
-                    meta={}, duplicate=is_dup, dup_location=dup_location,
+                    meta={}, duplicate=is_dup,
+                    dup_location=(dup_labels[0] if dup_labels else ""),
+                    dup_locations=dup_labels,
                 ))
 
             list_id = crossaccount.create_list_with_items(name, items)
@@ -3023,6 +3306,18 @@ class App(tk.Tk):
             src = "outra conta"
         return f"↪ De {src}: {label}" if label else f"↪ De {src}"
 
+    def _cross_cta_info(self, entry: dict) -> str:
+        """Descricao da CTA para envios vindos do Entre Contas (registros antigos
+        sem o campo tentam buscar no item da lista)."""
+        origin = entry.get("origin") or {}
+        if origin.get("origin") != "cross":
+            return ""
+        ctxt = origin.get("cta", "")
+        if not ctxt:
+            it = crossaccount.find_item(origin.get("list_id", ""), origin.get("item_id", ""))
+            ctxt = (it or {}).get("cta", "")
+        return ctxt if ctxt and ctxt != "não detectada" else ""
+
     def _add_history_row(self, parent, entry: dict, is_current: bool = True):
         row_outer = tk.Frame(parent, bg=BORDER, padx=1, pady=1)
         row_outer.pack(fill="x", padx=4, pady=2)
@@ -3078,6 +3373,12 @@ class App(tk.Tk):
                 info, text=src_info, anchor="w",
                 font=FONT_S, bg=PANEL, fg=ACCENT,
             ).pack(fill="x")
+            cta_info = self._cross_cta_info(entry)
+            if cta_info:
+                tk.Label(
+                    info, text=f"CTA: {cta_info}", anchor="w",
+                    font=FONT_S, bg=PANEL, fg=ACCENT,
+                ).pack(fill="x")
 
         meta_row = tk.Frame(info, bg=PANEL)
         meta_row.pack(fill="x", pady=(2, 0))

@@ -157,7 +157,7 @@ Serve para **reaproveitar conteúdo de outra conta** (por exemplo, entre cliente
 
 As listas ficam no painel da direita, com um **seletor (dropdown)** para alternar entre as contas/clientes, um botão **↻ Recarregar** (re-checa quais ainda estão disponíveis) e um botão **🗑 Apagar Lista** (remove a lista ativa com confirmação — as imagens da conta de origem ficam intactas).
 
-- **Repetida** (já existe no destino) → aparece **em cinza**, mostrando em qual pasta já existe
+- **Repetida** (já existe no destino) → aparece **em cinza** com **"⚠ REPETIDAS: X ▾"**: passar o mouse abre uma mini janela com um botão **📁 por pasta** onde ela já existe (o detector registra TODAS as ocorrências, não só a primeira)
 - **Disponível** → item colorido, com **Utilizar de Próxima** (vai pra próxima pasta livre + histórico) e fica cinza depois de usada
 - **CTA**: em segundo plano, o OCR lê os últimos cards e mostra o tipo de chamada — ex. `CTA: Comentar QUIERO · Seguir` (prioriza COMENTAR). Só roda nos itens disponíveis primeiro; se não achar, mostra "não detectada"
 - A **legenda** viaja junto: ao usar um item, o texto do `Legenda.txt` da origem é gravado na pasta de destino
@@ -176,6 +176,13 @@ O **Histórico de Envios** é compartilhado entre as duas abas — funciona como
 3. O robô rola o feed da conta-isca com comportamento humano ("jardineiro do algoritmo": demora mais nas publicações do seu gosto), lendo curtidas/comentários em pt/es/en. Os LOGs mostram cada aprovação/recusa com motivo, o status vira um cronômetro (⏱ início · decorrido · restante) e no fim sai um **Resumo** de diagnóstico
 4. As aprovadas aparecem no feed com capa grande: **💾 Salvar em…** baixa a publicação pelo pipeline normal (checando repetidas) e manda para os Salvos/Coleção escolhida; **✕ Descartar** remove (vira exemplo negativo do futuro filtro de gosto)
 5. O buffer guarda até 1000 publicações por feed; **🗑 Limpar feed** zera as descobertas sem afetar o que já foi salvo
+
+### Relatórios (aba Relatórios)
+
+- **📊 Gerar Relatório**: [1] grupos de repetidas DENTRO da Pasta de Destino + [2] repetidas (com os dias onde existem) e disponíveis (com CTA) das listas Entre Contas — o dropdown **"Base comparada"** escolhe entre todas as listas ou uma específica
+- **🔎 Auditar Repetidas**: compara a Pasta de Destino com ela mesma e agrupa as cópias (também disponível nas Configurações)
+- Todos os relatórios vão para **`data\relatorios\`** em subpastas por tipo (`geral\`, `auditoria\`), com a data de geração no nome — botão **"Abrir Pasta de Relatórios"** leva até lá
+- Publicações do Entre Contas usadas no dia mostram a **descrição da CTA** no cartão do Histórico
 
 ### Tema claro/escuro
 
@@ -282,6 +289,7 @@ O botão **Resetar** (com confirmação) só aparece na lista de **hoje** com en
 │   │   ├── collections.json   ← coleções dos Salvos
 │   │   ├── feed_inbox.json    ← inbox do Feed Especial (descobertas do robô)
 │   │   ├── feed_media/        ← capas das publicações do Feed Especial
+│   │   ├── relatorios/        ← relatórios gerados (subpastas por tipo, data no nome)
 │   │   ├── browser_profile/   ← sessão do Chrome da Análise por Link
 │   │   └── feedbot_profile/   ← sessão do Chrome da conta-isca (Feed Especial)
 │   ├── config.py              ← leitura e escrita de configurações

@@ -136,12 +136,13 @@ def read_caption(folder) -> str:
 
 
 def new_item(src_path, folder_label, hashes_hex, meta=None,
-             duplicate=False, dup_location="") -> dict:
+             duplicate=False, dup_location="", dup_locations=None) -> dict:
     """Constroi (sem salvar) o dict de um item, para import em lote."""
     src = Path(src_path)
     imgs = _sorted_images(src)
     thumb = str(imgs[0]) if imgs else ""
     default_meta = {"views": "N/D", "likes": "N/D", "comments": "N/D", "post_date": "N/D"}
+    locs = list(dup_locations) if dup_locations else ([dup_location] if dup_location else [])
     return {
         "id": uuid.uuid4().hex,
         "src_path": str(src),
@@ -152,7 +153,8 @@ def new_item(src_path, folder_label, hashes_hex, meta=None,
         "n_images": len(imgs),
         "used": False,
         "duplicate": bool(duplicate),
-        "dup_location": dup_location,   # onde ja existe no destino (Dia.../N)
+        "dup_location": dup_location,   # primeira ocorrencia (compat/exibicao)
+        "dup_locations": locs,          # TODAS as pastas onde ja existe
         "meta": {**default_meta, **(meta or {})},
     }
 

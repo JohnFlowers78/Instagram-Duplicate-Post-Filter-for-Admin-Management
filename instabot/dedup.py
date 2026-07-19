@@ -104,6 +104,24 @@ def is_duplicate_pair(
     return ok
 
 
+def find_all_duplicates(
+    new_hashes: list[imagehash.ImageHash],
+    post_index: list[tuple[Path, list[imagehash.ImageHash]]],
+    threshold: int = 5,
+    cta_cards: int = 2,
+    threshold_loose: int = 16,
+) -> list[Path]:
+    """TODAS as pastas onde a publicacao ja existe (nao para na primeira).
+    Usado para o 'REPETIDAS: X' com a lista de diretorios de cada carrossel."""
+    if not new_hashes:
+        return []
+    return [
+        folder for folder, hashes in post_index
+        if hashes and is_duplicate_pair(new_hashes, hashes,
+                                        threshold, cta_cards, threshold_loose)
+    ]
+
+
 def audit_duplicates(
     db_folder: Path,
     threshold: int = 5,

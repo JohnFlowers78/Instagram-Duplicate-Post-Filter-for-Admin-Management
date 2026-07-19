@@ -38,6 +38,7 @@ Ao levar uma nova versão para a máquina de trabalho: trocar só o `FiltroDeRep
 1. **Modo tolerante / "suspeitas de repetida"** — opção no Recarregar que ignora **2** cards em vez de 1 e pinta as quase-repetidas de **laranja** ("suspeita"), com botões É/Não é para revisar em um clique. Transforma a caça manual numa revisão de lista curta. Útil se os falsos "disponíveis" persistirem mesmo após purge + Recarregar.
 2. **Sugerir a pasta mais parecida ao marcar "É Repetida"** — o app calcula o melhor candidato na Pasta de Destino e pré-preenche o campo de pasta/dia no dialog (hoje o campo é manual e opcional).
 3. **Botão "Sair do Instagram do robô"** (Configurações) — limpa a sessão do perfil do Chrome do bot para trocar a conta logada sem mexer em pastas; o próximo uso cai na pausa de login normalmente.
+4. **Modo Pescaria (área de trabalho virtual)** — ao iniciar a coleta, o app move a janela do robô automaticamente para uma área de trabalho virtual dedicada do Windows (via API nativa) e a traz de volta ao terminar — a pescaria roda "em outra sala" sem ocupar espaço visual. (As áreas de trabalho virtuais já existem no Windows: `Win+Tab` para ver, `Ctrl+Win+D` cria, `Ctrl+Win+←/→` alterna.)
 
 ### Médio/longo prazo (roadmap discutido)
 

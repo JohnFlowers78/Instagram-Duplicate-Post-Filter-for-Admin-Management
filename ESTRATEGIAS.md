@@ -41,6 +41,12 @@ _Atualizado em: 17/07/2026_
   coleção. ⚠ Antes só entravam nomes puramente numéricos: slots nomeados ficavam FORA
   da base e não bloqueavam repetidas (corrigido em 17/07/2026).
 
+## Localização das repetidas (por item)
+
+- `find_all_duplicates`: cada publicação do Entre Contas guarda **TODAS** as pastas
+  onde já existe (`dup_locations`, sem parar na primeira) — alimenta o "⚠ REPETIDAS: X ▾"
+  do cartão (passar o mouse abre um botão 📁 por pasta).
+
 ## Ferramenta de verificação
 
 - **🔎 Auditar Repetidas** (Configurações → Detecção de Duplicatas): roda as mesmas 2
@@ -87,6 +93,22 @@ Toda análise "não repetida" loga o candidato mais próximo:
 - Publicação **aprovada** no filtro → pausa de 2,5–5 s (ensina o algoritmo da conta-isca)
 - **Reprovada** → passa em 0,6–1,4 s
 - Rolagem de 500–900 px por ciclo, aleatória; reiniciar a sessão entre coletas renova a entrega
+
+## 5. Blindagem da janela do robô
+
+| # | Estratégia | O que resolve | Status |
+|---|---|---|---|
+| A | `Input.setIgnoreInputEvents` (CDP) | Mouse/teclado MANUAIS sobre a janela do robô são ignorados (rolagem acidental não atrapalha) | 🧪 em teste |
+| B | Troca automática p/ rolagem via JS | Se o escudo também travar a roda do PRÓPRIO bot (scrollY parado 3 ciclos), rola via `window.scrollBy` | 🧪 em teste |
+| C | Flags anti-throttling (`--disable-backgrounding-occluded-windows`, `--disable-renderer-backgrounding`) | Janelas por cima NÃO pausam o render/lazy-load — melhor que pausar a coleta: não perde publicações nem tempo | 🧪 em teste |
+
+## 6. Capa das publicações no Feed Especial (nesta ordem)
+
+| # | Estratégia | Detalhe | Status |
+|---|---|---|---|
+| 1 | Maior `<img>` renderizado do post (`currentSrc`) | Qualidade CDN original (~1080px). O 1º `<img>` do card é o AVATAR do autor — era o bug das capas erradas | 🧪 em teste |
+| 2 | Print full-HD do 1º card | Fallback se a capa vier distorcida/errada | 📋 reserva |
+| 3 | Download do 1º card via SnapInsta | Último recurso (mais lento) | 📋 reserva |
 
 ---
 

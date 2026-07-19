@@ -1,0 +1,644 @@
+LISTA DE REFERÊNCIA — GRUPOS DE PUBLICAÇÕES REPETIDAS (João + Valter)
+Gerada por Claude em 18/07/2026 22:17 — auditoria completa dos dois bancos juntos
+Parâmetros: limiar 5 · CTA 2 cards · miolo t16 (regra clássica + regra do miolo)
+Publicações analisadas: 591 · Grupos de repetidas: 156 · Publicações envolvidas: 323
+
+Como usar: cada GRUPO é a mesma publicação; as datas estão nos nomes das
+pastas (DiaN_DD_MM_AA). Confira manualmente e marque qualquer grupo errado
+(falso positivo) ou repetida que ficou de fora (falso negativo).
+======================================================================
+
+GRUPO 1 — 4 cópias:
+   João:  Dia33_24_06_26_J\3
+   João:  Dia38_30_06_26_J\2
+   João:  Dia3_25_05_26_J\2
+   Valter:  Dia32_23_06_26_V\5
+
+GRUPO 2 — 4 cópias:
+   João:  Dia56_18_07_26_J\4
+   João:  Dia5_27_05_26_J\3
+   Valter:  Dia39_01_07_26_V\3
+   Valter:  Dia55_17_07_26_V\1
+
+GRUPO 3 — 3 cópias:
+   João:  Dia12_03_06_26_J\4
+   João:  Dia4_23_05_26_J\3
+   Valter:  Dia19_10_06_26_V\2
+
+GRUPO 4 — 3 cópias:
+   João:  Dia18_09_06_26_J\1
+   João:  Dia50_12_07_26_J\1
+   Valter:  Dia36_27_06_26_V\5
+
+GRUPO 5 — 3 cópias:
+   João:  Dia19_10_06_26_J\2
+   João:  Dia51_13_07_26_J\2
+   Valter:  Dia37_28_06_26_V\4
+
+GRUPO 6 — 3 cópias:
+   João:  Dia1_23_05_26_J\1
+   João:  Dia55_17_07_26_J\2
+   Valter:  Dia10_01_06_26_V\4
+
+GRUPO 7 — 3 cópias:
+   João:  Dia33_24_06_26_J\4
+   João:  Dia37_28_06_26_J\1
+   Valter:  Dia33_24_06_26_V\6
+
+GRUPO 8 — 3 cópias:
+   João:  Dia37_28_06_26_J\2
+   Valter:  Dia1_23_05_26_V\6
+   Valter:  Dia32_23_06_26_V\4
+
+GRUPO 9 — 3 cópias:
+   João:  Dia53_15_07_26_J\2
+   Valter:  Dia2_24_05_26_V\2
+   Valter:  Dia5_27_05_26_V\4
+
+GRUPO 10 — 2 cópias:
+   João:  Dia10_01_06_26_J\4
+   Valter:  Dia54_16_07_26_V\4
+
+GRUPO 11 — 2 cópias:
+   João:  Dia10_01_06_26_J\5
+   Valter:  Dia53_15_07_26_V\6
+
+GRUPO 12 — 2 cópias:
+   João:  Dia11_02_06_26_J\6
+   Valter:  Dia54_16_07_26_V\3
+
+GRUPO 13 — 2 cópias:
+   João:  Dia12_03_06_26_J\2
+   Valter:  Dia4_26_05_26_V\2
+
+GRUPO 14 — 2 cópias:
+   João:  Dia13_04_06_26_J\1
+   Valter:  Dia21_12_06_26_V\2
+
+GRUPO 15 — 2 cópias:
+   João:  Dia13_04_06_26_J\2
+   Valter:  Dia10_01_06_26_V\3
+
+GRUPO 16 — 2 cópias:
+   João:  Dia13_04_06_26_J\3
+   Valter:  Dia21_12_06_26_V\1
+
+GRUPO 17 — 2 cópias:
+   João:  Dia14_05_06_26_J\1
+   Valter:  Dia52_14_07_26_V\1
+
+GRUPO 18 — 2 cópias:
+   João:  Dia14_05_06_26_J\2
+   Valter:  Dia52_14_07_26_V\2
+
+GRUPO 19 — 2 cópias:
+   João:  Dia15_06_06_26_J\3
+   Valter:  Dia53_15_07_26_V\2
+
+GRUPO 20 — 2 cópias:
+   João:  Dia15_06_06_26_J\4
+   Valter:  Dia53_15_07_26_V\1
+
+GRUPO 21 — 2 cópias:
+   João:  Dia1_23_05_26_J\13 - Vitrine
+   Valter:  Dia55_17_07_26_V\3
+
+GRUPO 22 — 2 cópias:
+   João:  Dia1_23_05_26_J\2
+   Valter:  Dia16_07_06_26_V\6
+
+GRUPO 23 — 2 cópias:
+   João:  Dia1_23_05_26_J\5
+   Valter:  Dia18_09_06_26_V\3
+
+GRUPO 24 — 2 cópias:
+   João:  Dia1_23_05_26_J\6
+   Valter:  Dia18_09_06_26_V\4
+
+GRUPO 25 — 2 cópias:
+   João:  Dia1_23_05_26_J\9 - Vitrine
+   Valter:  Dia55_17_07_26_V\4
+
+GRUPO 26 — 2 cópias:
+   João:  Dia20_11_06_26_J\4
+   Valter:  Dia54_16_07_26_V\1
+
+GRUPO 27 — 2 cópias:
+   João:  Dia22_13_06_26_J\4
+   Valter:  Dia54_16_07_26_V\2
+
+GRUPO 28 — 2 cópias:
+   João:  Dia25_16_06_26_J\1
+   Valter:  Dia56_18_07_26_V\1
+
+GRUPO 29 — 2 cópias:
+   João:  Dia25_16_06_26_J\3
+   Valter:  Dia56_18_07_26_V\2
+
+GRUPO 30 — 2 cópias:
+   João:  Dia26_17_06_26_J\1
+   Valter:  Dia45_07_07_26_V\6
+
+GRUPO 31 — 2 cópias:
+   João:  Dia26_17_06_26_J\2
+   Valter:  Dia45_07_07_26_V\4
+
+GRUPO 32 — 2 cópias:
+   João:  Dia26_17_06_26_J\3
+   Valter:  Dia45_07_07_26_V\5
+
+GRUPO 33 — 2 cópias:
+   João:  Dia26_17_06_26_J\4
+   Valter:  Dia45_07_07_26_V\3
+
+GRUPO 34 — 2 cópias:
+   João:  Dia27_18_06_26_J\1
+   Valter:  Dia46_08_07_26_V\6
+
+GRUPO 35 — 2 cópias:
+   João:  Dia27_18_06_26_J\2
+   Valter:  Dia46_08_07_26_V\5
+
+GRUPO 36 — 2 cópias:
+   João:  Dia27_18_06_26_J\3
+   Valter:  Dia46_08_07_26_V\3
+
+GRUPO 37 — 2 cópias:
+   João:  Dia27_18_06_26_J\4
+   Valter:  Dia46_08_07_26_V\4
+
+GRUPO 38 — 2 cópias:
+   João:  Dia28_19_06_26_J\1
+   Valter:  Dia47_09_07_26_V\5
+
+GRUPO 39 — 2 cópias:
+   João:  Dia28_19_06_26_J\2
+   Valter:  Dia47_09_07_26_V\6
+
+GRUPO 40 — 2 cópias:
+   João:  Dia28_19_06_26_J\3
+   Valter:  Dia47_09_07_26_V\3
+
+GRUPO 41 — 2 cópias:
+   João:  Dia28_19_06_26_J\4
+   Valter:  Dia47_09_07_26_V\4
+
+GRUPO 42 — 2 cópias:
+   João:  Dia29_20_06_26_J\1
+   Valter:  Dia48_10_07_26_V\5
+
+GRUPO 43 — 2 cópias:
+   João:  Dia29_20_06_26_J\2
+   Valter:  Dia48_10_07_26_V\6
+
+GRUPO 44 — 2 cópias:
+   João:  Dia29_20_06_26_J\3
+   Valter:  Dia48_10_07_26_V\3
+
+GRUPO 45 — 2 cópias:
+   João:  Dia29_20_06_26_J\4
+   Valter:  Dia48_10_07_26_V\4
+
+GRUPO 46 — 2 cópias:
+   João:  Dia2_24_05_26_J\1
+   Valter:  Dia36_27_06_26_V\1
+
+GRUPO 47 — 2 cópias:
+   João:  Dia2_24_05_26_J\11
+   Valter:  Dia55_17_07_26_V\5
+
+GRUPO 48 — 2 cópias:
+   João:  Dia2_24_05_26_J\2
+   Valter:  Dia11_02_06_26_V\4
+
+GRUPO 49 — 2 cópias:
+   João:  Dia2_24_05_26_J\3
+   Valter:  Dia19_10_06_26_V\1
+
+GRUPO 50 — 2 cópias:
+   João:  Dia2_24_05_26_J\4
+   Valter:  Dia17_08_06_26_V\6
+
+GRUPO 51 — 2 cópias:
+   João:  Dia2_24_05_26_J\5
+   Valter:  Dia15_06_06_26_V\1
+
+GRUPO 52 — 2 cópias:
+   João:  Dia2_24_05_26_J\6
+   Valter:  Dia42_04_07_26_V\3
+
+GRUPO 53 — 2 cópias:
+   João:  Dia2_24_05_26_J\9
+   Valter:  Dia55_17_07_26_V\6
+
+GRUPO 54 — 2 cópias:
+   João:  Dia30_21_06_26_J\1
+   Valter:  Dia49_11_07_26_V\5
+
+GRUPO 55 — 2 cópias:
+   João:  Dia30_21_06_26_J\2
+   Valter:  Dia49_11_07_26_V\6
+
+GRUPO 56 — 2 cópias:
+   João:  Dia30_21_06_26_J\3
+   Valter:  Dia49_11_07_26_V\3
+
+GRUPO 57 — 2 cópias:
+   João:  Dia30_21_06_26_J\4
+   Valter:  Dia49_11_07_26_V\4
+
+GRUPO 58 — 2 cópias:
+   João:  Dia31_22_06_26_J\1
+   Valter:  Dia50_12_07_26_V\5
+
+GRUPO 59 — 2 cópias:
+   João:  Dia31_22_06_26_J\2
+   Valter:  Dia50_12_07_26_V\6
+
+GRUPO 60 — 2 cópias:
+   João:  Dia31_22_06_26_J\3
+   Valter:  Dia50_12_07_26_V\3
+
+GRUPO 61 — 2 cópias:
+   João:  Dia31_22_06_26_J\4
+   Valter:  Dia50_12_07_26_V\4
+
+GRUPO 62 — 2 cópias:
+   João:  Dia32_23_06_26_J\1
+   Valter:  Dia52_14_07_26_V\3
+
+GRUPO 63 — 2 cópias:
+   João:  Dia32_23_06_26_J\2
+   Valter:  Dia52_14_07_26_V\4
+
+GRUPO 64 — 2 cópias:
+   João:  Dia32_23_06_26_J\3
+   Valter:  Dia56_18_07_26_V\3
+
+GRUPO 65 — 2 cópias:
+   João:  Dia33_24_06_26_J\1
+   Valter:  Dia44_06_07_26_V\5
+
+GRUPO 66 — 2 cópias:
+   João:  Dia33_24_06_26_J\2
+   Valter:  Dia44_06_07_26_V\6
+
+GRUPO 67 — 2 cópias:
+   João:  Dia34_25_06_26_J\1
+   Valter:  Dia43_05_07_26_V\5
+
+GRUPO 68 — 2 cópias:
+   João:  Dia34_25_06_26_J\2
+   Valter:  Dia43_05_07_26_V\6
+
+GRUPO 69 — 2 cópias:
+   João:  Dia34_25_06_26_J\3
+   Valter:  Dia44_06_07_26_V\3
+
+GRUPO 70 — 2 cópias:
+   João:  Dia34_25_06_26_J\4
+   Valter:  Dia44_06_07_26_V\4
+
+GRUPO 71 — 2 cópias:
+   João:  Dia35_26_06_26_J\1
+   Valter:  Dia39_01_07_26_V\5
+
+GRUPO 72 — 2 cópias:
+   João:  Dia35_26_06_26_J\2
+   Valter:  Dia43_05_07_26_V\4
+
+GRUPO 73 — 2 cópias:
+   João:  Dia35_26_06_26_J\3
+   Valter:  Dia43_05_07_26_V\3
+
+GRUPO 74 — 2 cópias:
+   João:  Dia35_26_06_26_J\4
+   Valter:  Dia39_01_07_26_V\6
+
+GRUPO 75 — 2 cópias:
+   João:  Dia36_27_06_26_J\1
+   Valter:  Dia35_26_06_26_V\5
+
+GRUPO 76 — 2 cópias:
+   João:  Dia36_27_06_26_J\2
+   Valter:  Dia33_24_06_26_V\5
+
+GRUPO 77 — 2 cópias:
+   João:  Dia36_27_06_26_J\3
+   Valter:  Dia35_26_06_26_V\3
+
+GRUPO 78 — 2 cópias:
+   João:  Dia36_27_06_26_J\4
+   Valter:  Dia33_24_06_26_V\3
+
+GRUPO 79 — 2 cópias:
+   João:  Dia37_28_06_26_J\3
+   Valter:  Dia33_24_06_26_V\4
+
+GRUPO 80 — 2 cópias:
+   João:  Dia37_28_06_26_J\4
+   Valter:  Dia32_23_06_26_V\6
+
+GRUPO 81 — 2 cópias:
+   João:  Dia38_30_06_26_J\1
+   Valter:  Dia32_23_06_26_V\3
+
+GRUPO 82 — 2 cópias:
+   João:  Dia38_30_06_26_J\3
+   Valter:  Dia31_22_06_26_V\3
+
+GRUPO 83 — 2 cópias:
+   João:  Dia38_30_06_26_J\4
+   Valter:  Dia31_22_06_26_V\5
+
+GRUPO 84 — 2 cópias:
+   João:  Dia39_01_07_26_J\1
+   Valter:  Dia51_13_07_26_V\3
+
+GRUPO 85 — 2 cópias:
+   João:  Dia39_01_07_26_J\2
+   Valter:  Dia51_13_07_26_V\4
+
+GRUPO 86 — 2 cópias:
+   João:  Dia39_01_07_26_J\3
+   Valter:  Dia51_13_07_26_V\5
+
+GRUPO 87 — 2 cópias:
+   João:  Dia39_01_07_26_J\4
+   Valter:  Dia51_13_07_26_V\6
+
+GRUPO 88 — 2 cópias:
+   João:  Dia40_02_07_26_J\1
+   Valter:  Dia52_14_07_26_V\6
+
+GRUPO 89 — 2 cópias:
+   João:  Dia40_02_07_26_J\2
+   Valter:  Dia52_14_07_26_V\5
+
+GRUPO 90 — 2 cópias:
+   João:  Dia40_02_07_26_J\4
+   Valter:  Dia56_18_07_26_V\4
+
+GRUPO 91 — 2 cópias:
+   João:  Dia41_03_07_26_J\2
+   Valter:  Dia56_18_07_26_V\5
+
+GRUPO 92 — 2 cópias:
+   João:  Dia41_03_07_26_J\3
+   Valter:  Dia56_18_07_26_V\6
+
+GRUPO 93 — 2 cópias:
+   João:  Dia41_03_07_26_J\4
+   Valter:  Dia53_15_07_26_V\5
+
+GRUPO 94 — 2 cópias:
+   João:  Dia42_04_07_26_J\1
+   Valter:  Dia53_15_07_26_V\4
+
+GRUPO 95 — 2 cópias:
+   João:  Dia42_04_07_26_J\3
+   Valter:  Dia53_15_07_26_V\3
+
+GRUPO 96 — 2 cópias:
+   João:  Dia43_05_07_26_J\1
+   Valter:  Dia31_22_06_26_V\6
+
+GRUPO 97 — 2 cópias:
+   João:  Dia43_05_07_26_J\2
+   Valter:  Dia31_22_06_26_V\4
+
+GRUPO 98 — 2 cópias:
+   João:  Dia43_05_07_26_J\3
+   Valter:  Dia35_26_06_26_V\4
+
+GRUPO 99 — 2 cópias:
+   João:  Dia43_05_07_26_J\4
+   Valter:  Dia35_26_06_26_V\6
+
+GRUPO 100 — 2 cópias:
+   João:  Dia44_06_07_26_J\1
+   Valter:  Dia34_25_06_26_V\3
+
+GRUPO 101 — 2 cópias:
+   João:  Dia44_06_07_26_J\2
+   Valter:  Dia34_25_06_26_V\4
+
+GRUPO 102 — 2 cópias:
+   João:  Dia44_06_07_26_J\3
+   Valter:  Dia34_25_06_26_V\5
+
+GRUPO 103 — 2 cópias:
+   João:  Dia44_06_07_26_J\4
+   Valter:  Dia34_25_06_26_V\6
+
+GRUPO 104 — 2 cópias:
+   João:  Dia45_07_07_26_J\1
+   Valter:  Dia26_17_06_26_V\6
+
+GRUPO 105 — 2 cópias:
+   João:  Dia45_07_07_26_J\2
+   Valter:  Dia26_17_06_26_V\5
+
+GRUPO 106 — 2 cópias:
+   João:  Dia45_07_07_26_J\3
+   Valter:  Dia26_17_06_26_V\3
+
+GRUPO 107 — 2 cópias:
+   João:  Dia45_07_07_26_J\4
+   Valter:  Dia26_17_06_26_V\4
+
+GRUPO 108 — 2 cópias:
+   João:  Dia46_08_07_26_J\1
+   Valter:  Dia27_18_06_26_V\5
+
+GRUPO 109 — 2 cópias:
+   João:  Dia46_08_07_26_J\2
+   Valter:  Dia27_18_06_26_V\6
+
+GRUPO 110 — 2 cópias:
+   João:  Dia46_08_07_26_J\3
+   Valter:  Dia27_18_06_26_V\3
+
+GRUPO 111 — 2 cópias:
+   João:  Dia46_08_07_26_J\4
+   Valter:  Dia27_18_06_26_V\4
+
+GRUPO 112 — 2 cópias:
+   João:  Dia47_09_07_26_J\1
+   Valter:  Dia28_19_06_26_V\5
+
+GRUPO 113 — 2 cópias:
+   João:  Dia47_09_07_26_J\2
+   Valter:  Dia28_19_06_26_V\6
+
+GRUPO 114 — 2 cópias:
+   João:  Dia47_09_07_26_J\3
+   Valter:  Dia28_19_06_26_V\3
+
+GRUPO 115 — 2 cópias:
+   João:  Dia47_09_07_26_J\4
+   Valter:  Dia28_19_06_26_V\4
+
+GRUPO 116 — 2 cópias:
+   João:  Dia48_10_07_26_J\1
+   Valter:  Dia29_20_06_26_V\5
+
+GRUPO 117 — 2 cópias:
+   João:  Dia48_10_07_26_J\2
+   Valter:  Dia29_20_06_26_V\6
+
+GRUPO 118 — 2 cópias:
+   João:  Dia48_10_07_26_J\3
+   Valter:  Dia29_20_06_26_V\3
+
+GRUPO 119 — 2 cópias:
+   João:  Dia48_10_07_26_J\4
+   Valter:  Dia29_20_06_26_V\4
+
+GRUPO 120 — 2 cópias:
+   João:  Dia49_11_07_26_J\1
+   Valter:  Dia30_21_06_26_V\5
+
+GRUPO 121 — 2 cópias:
+   João:  Dia49_11_07_26_J\2
+   Valter:  Dia30_21_06_26_V\6
+
+GRUPO 122 — 2 cópias:
+   João:  Dia49_11_07_26_J\3
+   Valter:  Dia30_21_06_26_V\3
+
+GRUPO 123 — 2 cópias:
+   João:  Dia49_11_07_26_J\4
+   Valter:  Dia30_21_06_26_V\4
+
+GRUPO 124 — 2 cópias:
+   João:  Dia4_23_05_26_J\4
+   Valter:  Dia20_11_06_26_V\3
+
+GRUPO 125 — 2 cópias:
+   João:  Dia50_12_07_26_J\2
+   Valter:  Dia36_27_06_26_V\6
+
+GRUPO 126 — 2 cópias:
+   João:  Dia50_12_07_26_J\3
+   Valter:  Dia36_27_06_26_V\3
+
+GRUPO 127 — 2 cópias:
+   João:  Dia50_12_07_26_J\4
+   Valter:  Dia36_27_06_26_V\4
+
+GRUPO 128 — 2 cópias:
+   João:  Dia51_13_07_26_J\1
+   Valter:  Dia37_28_06_26_V\3
+
+GRUPO 129 — 2 cópias:
+   João:  Dia51_13_07_26_J\3
+   Valter:  Dia37_28_06_26_V\5
+
+GRUPO 130 — 2 cópias:
+   João:  Dia51_13_07_26_J\4
+   Valter:  Dia37_28_06_26_V\6
+
+GRUPO 131 — 2 cópias:
+   João:  Dia52_14_07_26_J\1
+   Valter:  Dia1_23_05_26_V\1
+
+GRUPO 132 — 2 cópias:
+   João:  Dia52_14_07_26_J\2
+   Valter:  Dia2_24_05_26_V\1
+
+GRUPO 133 — 2 cópias:
+   João:  Dia52_14_07_26_J\3
+   Valter:  Dia1_23_05_26_V\2
+
+GRUPO 134 — 2 cópias:
+   João:  Dia52_14_07_26_J\4
+   Valter:  Dia2_24_05_26_V\5
+
+GRUPO 135 — 2 cópias:
+   João:  Dia53_15_07_26_J\1
+   Valter:  Dia1_23_05_26_V\3
+
+GRUPO 136 — 2 cópias:
+   João:  Dia53_15_07_26_J\3
+   Valter:  Dia1_23_05_26_V\7
+
+GRUPO 137 — 2 cópias:
+   João:  Dia53_15_07_26_J\4
+   Valter:  Dia2_24_05_26_V\6
+
+GRUPO 138 — 2 cópias:
+   João:  Dia54_16_07_26_J\1
+   Valter:  Dia20_11_06_26_V\6
+
+GRUPO 139 — 2 cópias:
+   João:  Dia54_16_07_26_J\2
+   Valter:  Dia21_12_06_26_V\4
+
+GRUPO 140 — 2 cópias:
+   João:  Dia54_16_07_26_J\3
+   Valter:  Dia22_13_06_26_V\4
+
+GRUPO 141 — 2 cópias:
+   João:  Dia54_16_07_26_J\4
+   Valter:  Dia23_14_06_26_V\4
+
+GRUPO 142 — 2 cópias:
+   João:  Dia55_17_07_26_J\1
+   Valter:  Dia10_01_06_26_V\2
+
+GRUPO 143 — 2 cópias:
+   João:  Dia55_17_07_26_J\3
+   Valter:  Dia11_02_06_26_V\2
+
+GRUPO 144 — 2 cópias:
+   João:  Dia55_17_07_26_J\4
+   Valter:  Dia12_03_06_26_V\5
+
+GRUPO 145 — 2 cópias:
+   João:  Dia56_18_07_26_J\1
+   Valter:  Dia42_04_07_26_V\4
+
+GRUPO 146 — 2 cópias:
+   João:  Dia56_18_07_26_J\2
+   Valter:  Dia25_16_06_26_V\4
+
+GRUPO 147 — 2 cópias:
+   João:  Dia56_18_07_26_J\3
+   Valter:  Dia25_16_06_26_V\6
+
+GRUPO 148 — 2 cópias:
+   João:  Dia5_27_05_26_J\7
+   Valter:  Dia55_17_07_26_V\2
+
+GRUPO 149 — 2 cópias:
+   João:  Dia8_30_05_26_J\5
+   Valter:  Dia54_16_07_26_V\6
+
+GRUPO 150 — 2 cópias:
+   João:  Dia9_31_05_26_J\6
+   Valter:  Dia54_16_07_26_V\5
+
+GRUPO 151 — 2 cópias:
+   Valter:  Dia11_02_06_26_V\3
+   Valter:  Dia13_04_06_26_V\6
+
+GRUPO 152 — 2 cópias:
+   Valter:  Dia13_04_06_26_V\1
+   Valter:  Dia5_27_05_26_V\2
+
+GRUPO 153 — 2 cópias:
+   Valter:  Dia13_04_06_26_V\5
+   Valter:  Dia4_26_05_26_V\3
+
+GRUPO 154 — 2 cópias:
+   Valter:  Dia14_05_06_26_V\2
+   Valter:  Dia3_25_05_26_V\1
+
+GRUPO 155 — 2 cópias:
+   Valter:  Dia14_05_06_26_V\6
+   Valter:  Dia3_25_05_26_V\3
+
+GRUPO 156 — 2 cópias:
+   Valter:  Dia25_16_06_26_V\3
+   Valter:  Dia2_24_05_26_V\3

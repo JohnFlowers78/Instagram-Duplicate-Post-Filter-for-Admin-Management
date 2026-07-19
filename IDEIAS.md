@@ -82,6 +82,7 @@ Feed idêntico ao do Instagram DENTRO do app, alimentado por um bot que rola o f
 ## ✅ Ideias implementadas (saíram da lista acima)
 
 - **14/07/2026 — Escolher a coleção já ao Adicionar à Fila**: dropdown "Salvar em:" no modo fila do Filtro por Link (Salvos geral, Salvos + coleção, ou criar coleção nova na hora). Proposta e implementada no mesmo dia — fazia parte da ideia original dos Salvos com Coleções.
+- **18/07/2026 — 🔎 Auditoria de Repetidas** (Configurações → Detecção de Duplicatas): compara a Pasta de Destino com ela mesma e gera relatório com os GRUPOS de repetidas (2, 3, N cópias, união-busca), abrindo o .txt ao terminar. Nasceu da investigação do vazamento de repetidas (regra do miolo) — proposta e implementada no mesmo dia.
 
 ---
 

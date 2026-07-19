@@ -213,6 +213,8 @@ class App(tk.Tk):
         self._var_letter  = tk.StringVar(value=self.cfg.get("person_initial", "Z"))
         self._var_slots   = tk.StringVar(value=str(self.cfg.get("slots_per_day", 4)))
         self._var_thresh  = tk.StringVar(value=str(self.cfg.get("hash_threshold", 5)))
+        self._var_cta     = tk.StringVar(value=str(self.cfg.get("cta_cards", 2)))
+        self._var_thresh2 = tk.StringVar(value=str(self.cfg.get("hash_threshold_loose", 16)))
         self._var_theme   = tk.StringVar(value=self.cfg.get("theme", "light"))
         self._theme_applied = self.cfg.get("theme", "light")
 
@@ -1196,6 +1198,8 @@ class App(tk.Tk):
             if manual_kept:
                 self._cross_log(f"  {len(manual_kept)} marcação(ões) manual(is) preservada(s).")
             threshold = self.cfg.get("hash_threshold", 5)
+            cta_n = self.cfg.get("cta_cards", 2)
+            t_loose = self.cfg.get("hash_threshold_loose", 16)
             dest_index = dedup.build_post_index(db_folder)
             changed = 0
             cancelled = False
@@ -1208,7 +1212,8 @@ class App(tk.Tk):
                 if i == 1 or i == total or i % 10 == 0:
                     self._cross_log(f"  reanalisando {i} de {total}")
                 hashes = dedup.hashes_from_hex(it.get("hashes", []))
-                match = dedup.find_duplicate_post(hashes, dest_index, threshold)
+                match = dedup.find_duplicate_post(hashes, dest_index, threshold,
+                                                  cta_cards=cta_n, threshold_loose=t_loose)
                 is_dup = match is not None
                 new_loc = self._dup_location_label(match, db_folder) if is_dup else ""
                 if bool(it.get("duplicate")) != is_dup or it.get("dup_location", "") != new_loc:
@@ -2095,6 +2100,39 @@ class App(tk.Tk):
             font=FONT_M, bg=PANEL, fg=TXT_M,
         ).pack(side="left")
 
+        cta_row = tk.Frame(card3, bg=PANEL)
+        cta_row.pack(fill="x", pady=(8, 0))
+        tk.Label(cta_row, text="Cards de CTA no final:", font=FONT_B, bg=PANEL,
+                 fg=TXT_B).pack(side="left")
+        vcmd_cta = (
+            self.register(lambda v: v == "" or (v.isdigit() and int(v) <= 3)), "%P"
+        )
+        cta_wrap = tk.Frame(cta_row, bg=BORDER, padx=1, pady=1)
+        cta_wrap.pack(side="left", padx=(8, 0))
+        tk.Entry(
+            cta_wrap, textvariable=self._var_cta,
+            width=4, font=FONT_B, justify="center",
+            bg=INNER, fg=TXT_H, relief="flat", bd=0,
+            validate="key", validatecommand=vcmd_cta,
+        ).pack(ipady=4)
+        tk.Label(cta_row, text="   Limiar do miolo:", font=FONT_B, bg=PANEL,
+                 fg=TXT_B).pack(side="left")
+        thresh2_wrap = tk.Frame(cta_row, bg=BORDER, padx=1, pady=1)
+        thresh2_wrap.pack(side="left", padx=(8, 0))
+        tk.Entry(
+            thresh2_wrap, textvariable=self._var_thresh2,
+            width=4, font=FONT_B, justify="center",
+            bg=INNER, fg=TXT_H, relief="flat", bd=0,
+            validate="key", validatecommand=vcmd_thr,
+        ).pack(ipady=4)
+        tk.Label(
+            card3,
+            text="Regra do miolo: ignora os cards de CTA do fim (de cada lado) e exige o "
+                 "resto todo pareado com o limiar tolerante — pega CTAs refeitas (1 ou 2 "
+                 "cards) e a recompressão entre downloads.",
+            font=FONT_M, bg=PANEL, fg=TXT_M, anchor="w", wraplength=520, justify="left",
+        ).pack(fill="x", pady=(4, 0))
+
         purge_row = tk.Frame(card3, bg=PANEL)
         purge_row.pack(fill="x", pady=(12, 0))
         tk.Label(
@@ -2107,6 +2145,19 @@ class App(tk.Tk):
             purge_row, "Apagar caches de hash", self._purge_hash_caches, "secondary"
         )
         self.btn_purge_hashes.pack(side="right", padx=(10, 0))
+
+        audit_row = tk.Frame(card3, bg=PANEL)
+        audit_row.pack(fill="x", pady=(10, 0))
+        tk.Label(
+            audit_row,
+            text="Auditoria: compara a Pasta de Destino com ela MESMA e lista os grupos "
+                 "de publicações repetidas (2, 3, N cópias) num relatório.",
+            font=FONT_S, bg=PANEL, fg=TXT_M, anchor="w", wraplength=350, justify="left",
+        ).pack(side="left", fill="x", expand=True)
+        self.btn_audit = self._btn(
+            audit_row, "🔎 Auditar Repetidas", self._audit_duplicates_flow, "secondary"
+        )
+        self.btn_audit.pack(side="right", padx=(10, 0))
 
         # Card: logins do Instagram (uma sessao de navegador por funcao)
         outer_lg, card_lg = self._make_card(page, "Logins do Instagram (por função)")
@@ -2265,17 +2316,21 @@ class App(tk.Tk):
 
     def _save_settings(self):
         try:
-            slots = int(self._var_slots.get() or "6")
+            slots = int(self._var_slots.get() or "4")
             thresh = int(self._var_thresh.get() or "5")
+            cta_n = int(self._var_cta.get() or "2")
+            thresh2 = int(self._var_thresh2.get() or "16")
         except ValueError:
             self._show_result_popup(False, "Valores inválidos. Verifique os campos numéricos.")
             return
-        letter = self._var_letter.get().strip().upper() or "V"
+        letter = self._var_letter.get().strip().upper() or "Z"
         self.cfg["include_day_counter"]    = self._var_counter.get()
         self.cfg["include_person_initial"] = self._var_initial.get()
         self.cfg["person_initial"]         = letter
         self.cfg["slots_per_day"]          = slots
         self.cfg["hash_threshold"]         = thresh
+        self.cfg["cta_cards"]              = cta_n
+        self.cfg["hash_threshold_loose"]   = thresh2
         config.save_config(self.cfg)
         self._var_letter.set(letter)
         self._show_result_popup(True, "Configurações salvas com sucesso!")
@@ -2347,6 +2402,89 @@ class App(tk.Tk):
             self.after(0, fin)
 
         threading.Thread(target=worker, daemon=True).start()
+
+    def _audit_duplicates_flow(self):
+        """Auditoria de Repetidas: Pasta de Destino x ela mesma, em grupos.
+        Gera um relatorio .txt em data/ e abre ao terminar."""
+        db = self.cfg.get("db_folder")
+        if not db or not Path(db).is_dir():
+            self._show_toast("Selecione a Pasta de Destino primeiro.", 4000, ERR_BG, ERR_FG)
+            return
+        if getattr(self, "_audit_busy", False):
+            return
+        if not self._confirm_dialog(
+            "Auditoria de Repetidas",
+            "A Pasta de Destino inteira será comparada com ela mesma.\n"
+            "Pode levar alguns minutos na primeira vez (depois fica rápido "
+            "pelo cache de hashes). Continuar?",
+        ):
+            return
+        self._audit_busy = True
+        try:
+            self.btn_audit.config(state="disabled", text="Auditando…")
+        except tk.TclError:
+            pass
+        threading.Thread(target=self._run_audit, args=(Path(db),), daemon=True).start()
+
+    def _run_audit(self, db_folder: Path):
+        try:
+            thresh = self.cfg.get("hash_threshold", 5)
+            cta_n = self.cfg.get("cta_cards", 2)
+            t_loose = self.cfg.get("hash_threshold_loose", 16)
+
+            def prog(i, n):
+                self.after(0, lambda: self._set_audit_btn(f"Auditando {i}/{n}…"))
+
+            groups = dedup.audit_duplicates(db_folder, thresh, cta_n, t_loose, prog)
+
+            stamp = datetime.now().strftime("%d/%m/%Y %H:%M")
+            fname = datetime.now().strftime("auditoria_repetidas_%Y%m%d_%H%M.txt")
+            report = DATA_DIR / fname
+            lines = [
+                "AUDITORIA DE REPETIDAS — Pasta de Destino x ela mesma",
+                f"Pasta: {db_folder}",
+                f"Gerada em: {stamp} · limiar {thresh} · CTA {cta_n} · miolo t{t_loose}",
+                "",
+            ]
+            if not groups:
+                lines.append("Nenhum grupo de repetidas encontrado. 🎉")
+            total_copias = sum(len(g) for g in groups)
+            for gi, g in enumerate(groups, start=1):
+                lines.append(f"GRUPO {gi} — {len(g)} cópia(s):")
+                for p in g:
+                    try:
+                        lines.append(f"   {p.relative_to(db_folder)}")
+                    except ValueError:
+                        lines.append(f"   {p}")
+                lines.append("")
+            report.parent.mkdir(parents=True, exist_ok=True)
+            report.write_text("\n".join(lines), encoding="utf-8")
+
+            def fin():
+                self._set_audit_btn("🔎 Auditar Repetidas", enable=True)
+                self._show_result_popup(
+                    True,
+                    f"Auditoria concluída: {len(groups)} grupo(s) de repetidas "
+                    f"({total_copias} publicações envolvidas). Relatório: {report.name}",
+                )
+                try:
+                    os.startfile(str(report))
+                except Exception:
+                    pass
+            self.after(0, fin)
+        except Exception as exc:
+            def fail(e=exc):
+                self._set_audit_btn("🔎 Auditar Repetidas", enable=True)
+                self._show_result_popup(False, f"Erro na auditoria: {e}")
+            self.after(0, fail)
+        finally:
+            self._audit_busy = False
+
+    def _set_audit_btn(self, text: str, enable: bool = False):
+        try:
+            self.btn_audit.config(text=text, state=("normal" if enable else "disabled"))
+        except tk.TclError:
+            pass
 
     # ------------------------------------------------------------------
     # Logins do Instagram (uma sessao de navegador por funcao)
@@ -2486,6 +2624,8 @@ class App(tk.Tk):
             self._cross_log(f"{total} publicação(ões) encontrada(s). Comparando com o destino...")
             dest_index = dedup.build_post_index(db_folder)
             threshold = self.cfg.get("hash_threshold", 5)
+            cta_n = self.cfg.get("cta_cards", 2)
+            t_loose = self.cfg.get("hash_threshold_loose", 16)
 
             items = []
             dup_count = 0
@@ -2495,7 +2635,8 @@ class App(tk.Tk):
                     self._cross_log(f"  analisando a pasta {i} de {total}")
                 images = crossaccount._sorted_images(folder)
                 hashes = dedup.hash_new_media(images)
-                match = dedup.find_duplicate_post(hashes, dest_index, threshold)
+                match = dedup.find_duplicate_post(hashes, dest_index, threshold,
+                                                  cta_cards=cta_n, threshold_loose=t_loose)
                 is_dup = match is not None
                 dup_location = self._dup_location_label(match, db_folder) if is_dup else ""
                 if is_dup:
@@ -4327,6 +4468,8 @@ class App(tk.Tk):
             initial     = self.cfg.get("person_initial", "Z")
             slots       = self.cfg.get("slots_per_day", 4)
             threshold   = self.cfg.get("hash_threshold", 5)
+            cta_n       = self.cfg.get("cta_cards", 2)
+            t_loose     = self.cfg.get("hash_threshold_loose", 16)
             inc_counter = self.cfg.get("include_day_counter", True)
             inc_initial = self.cfg.get("include_person_initial", True)
 
@@ -4364,9 +4507,12 @@ class App(tk.Tk):
             self._log_async(
                 f"  {len(new_hashes)} img(s) novas · {len(post_index)} post(s) no historico"
             )
-            duplicate = dedup.find_duplicate_post(new_hashes, post_index, threshold)
+            duplicate = dedup.find_duplicate_post(new_hashes, post_index, threshold,
+                                                  cta_cards=cta_n, threshold_loose=t_loose)
             if not duplicate and post_index:
-                self._log_async(f"  Nao repetida — {dedup.best_match_stats(new_hashes, post_index, threshold)}")
+                self._log_async(
+                    f"  Nao repetida — "
+                    f"{dedup.best_match_stats(new_hashes, post_index, threshold, cta_n, t_loose)}")
             if duplicate:
                 existing_folder, max_dist = duplicate
                 try:
@@ -4386,7 +4532,8 @@ class App(tk.Tk):
             # --- 2) Checa a fila de espera (o card final sempre difere; tolerancia ja aplicada) ---
             matched_queue_id = None
             queue_index = self._build_queue_index()
-            q_match = dedup.find_duplicate_post(new_hashes, queue_index, threshold)
+            q_match = dedup.find_duplicate_post(new_hashes, queue_index, threshold,
+                                                cta_cards=cta_n, threshold_loose=t_loose)
             if q_match:
                 q_dir, q_dist = q_match
                 matched_queue_id = q_dir.name

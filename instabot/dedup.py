@@ -86,6 +86,70 @@ def get_all_hashes(folder: Path) -> list[imagehash.ImageHash]:
     return hashes
 
 
+def is_duplicate_pair(
+    ha: list[imagehash.ImageHash],
+    hb: list[imagehash.ImageHash],
+    threshold: int = 5,
+    cta_cards: int = 2,
+    threshold_loose: int = 16,
+) -> bool:
+    """As mesmas 2 regras do find_duplicate_post, para um par avulso (simetrico)."""
+    if not ha or not hb:
+        return False
+    needed = max(1, min(len(ha), len(hb)) - 1)
+    matched, _, _ = _match_stats(ha, hb, threshold)
+    if matched >= needed:
+        return True
+    ok, _ = content_match(ha, hb, threshold_loose, cta_cards)
+    return ok
+
+
+def audit_duplicates(
+    db_folder: Path,
+    threshold: int = 5,
+    cta_cards: int = 2,
+    threshold_loose: int = 16,
+    progress_cb=None,
+) -> list[list[Path]]:
+    """AUDITORIA: compara a Pasta de Destino com ela mesma e devolve os GRUPOS
+    de publicacoes repetidas (2, 3, N copias — sem limite por grupo).
+
+    Usa as mesmas 2 regras dos filtros (classica + miolo) e uniao-busca para
+    agrupar: se A==B e B==C, o grupo e {A, B, C}. progress_cb(i, n) por linha.
+    """
+    index = build_post_index(db_folder)
+    n = len(index)
+    parent = list(range(n))
+
+    def find(i):
+        while parent[i] != i:
+            parent[i] = parent[parent[i]]
+            i = parent[i]
+        return i
+
+    def union(i, j):
+        ri, rj = find(i), find(j)
+        if ri != rj:
+            parent[rj] = ri
+
+    for i in range(n):
+        if progress_cb:
+            progress_cb(i + 1, n)
+        for j in range(i + 1, n):
+            if find(i) == find(j):
+                continue   # ja estao no mesmo grupo
+            if is_duplicate_pair(index[i][1], index[j][1],
+                                 threshold, cta_cards, threshold_loose):
+                union(i, j)
+
+    groups: dict = {}
+    for i in range(n):
+        groups.setdefault(find(i), []).append(index[i][0])
+    out = [sorted(g, key=lambda p: str(p).lower()) for g in groups.values() if len(g) > 1]
+    out.sort(key=lambda g: (-len(g), str(g[0]).lower()))
+    return out
+
+
 def purge_hash_caches(root: Path) -> int:
     """Apaga TODOS os .hashes.json dentro de root (recursivo).
 
@@ -127,11 +191,15 @@ def hash_new_media(media_paths: list[Path]) -> list[imagehash.ImageHash]:
 
 
 def build_post_index(db_folder: Path) -> list[tuple[Path, list[imagehash.ImageHash]]]:
-    """Varre db_folder em busca de subpastas numeradas que ja tem midia,
-    e monta o indice de hashes de TODAS as imagens de cada publicacao."""
+    """Varre db_folder e monta o indice de hashes de cada publicacao.
+
+    Aceita QUALQUER subpasta de 2o nivel que contenha imagens numeradas — nao
+    apenas nomes puramente numericos. Isso inclui slots renomeados na mao
+    ('7 - Vitrine', '10 - Híbrido') e pastas de colecao: tudo que esta na Pasta
+    de Destino e conteudo reivindicado e DEVE bloquear repeticoes."""
     index = []
     for slot_folder in db_folder.glob("*/*"):
-        if not slot_folder.is_dir() or not slot_folder.name.isdigit():
+        if not slot_folder.is_dir():
             continue
         hashes = get_all_hashes(slot_folder)
         if hashes:
@@ -198,10 +266,48 @@ def _match_stats(
     return matched, max_dist, min_sem_par
 
 
+def _trim_cta(hashes: list, cta_cards: int) -> list:
+    """Remove os ultimos cta_cards (a CTA fica SEMPRE no fim do carrossel)."""
+    if cta_cards > 0 and len(hashes) > cta_cards:
+        return hashes[:-cta_cards]
+    return hashes
+
+
+def content_match(
+    new_hashes: list[imagehash.ImageHash],
+    hashes: list[imagehash.ImageHash],
+    threshold_loose: int = 16,
+    cta_cards: int = 2,
+) -> tuple[bool, int]:
+    """REGRA DO MIOLO: ignora os ultimos cta_cards de CADA lado e exige que TODO
+    o miolo menor encontre par, com limiar tolerante.
+
+    Por que existe (medido em caso real, 17/07/2026):
+    - A CTA pode ser 1 OU 2 cards e e trocada/redesenhada entre republicacoes
+      → ate 2 cards legitimamente diferentes no fim (a tolerancia de 1 nao basta).
+    - O MESMO card baixado em epocas diferentes muda 6-14 bits no pHash
+      (recompressao do SnapInsta/Instagram) — acima do limiar estrito 5.
+    - Cards de publicacoes DIFERENTES ficam a 20+ bits.
+    → limiar do miolo default 16: no meio do vao entre 14 (mesma arte) e 20 (outra arte).
+
+    Falso positivo exigiria TODOS os cards do miolo (>=3) parecidos aos pares — na
+    pratica nao ocorre entre artes diferentes. Retorna (e_repetida, dist_maxima).
+    """
+    a = _trim_cta(new_hashes, cta_cards)
+    b = _trim_cta(hashes, cta_cards)
+    needed = min(len(a), len(b))
+    if needed < 3:   # miolo curto demais para evidencia coletiva confiavel
+        return False, 0
+    matched, max_dist, _ = _match_stats(a, b, threshold_loose)
+    return matched >= needed, max_dist
+
+
 def best_match_stats(
     new_hashes: list[imagehash.ImageHash],
     post_index: list[tuple[Path, list[imagehash.ImageHash]]],
     threshold: int = 5,
+    cta_cards: int = 2,
+    threshold_loose: int = 16,
 ) -> str:
     """Retorna string com o candidato mais proximo (para log de diagnostico)."""
     if not new_hashes:
@@ -209,7 +315,7 @@ def best_match_stats(
     if not post_index:
         return "indice vazio"
 
-    best: Optional[tuple[int, int, int, str, Optional[int]]] = None
+    best = None
 
     for folder, hashes in post_index:
         if not hashes:
@@ -219,14 +325,20 @@ def best_match_stats(
         needed = max(1, needed_full - 1)  # ultimo card (CTA) sempre muda
         name = f"{folder.parent.name}/{folder.name}"
         if best is None or matched > best[0]:
-            best = (matched, max_dist, needed, name, min_sem_par)
+            best = (matched, max_dist, needed, name, min_sem_par, hashes)
 
     if best is None:
         return "nenhum candidato"
-    matched, max_dist, needed, name, min_sem_par = best
+    matched, max_dist, needed, name, min_sem_par, bh = best
     s = f"mais proximo: {name} ({matched}/{needed} pares · dist max {max_dist})"
     if min_sem_par is not None:
         s += f" · sem par: dist {min_sem_par}"
+    # diagnostico da regra do miolo para o mesmo candidato
+    a2 = _trim_cta(new_hashes, cta_cards)
+    b2 = _trim_cta(bh, cta_cards)
+    n2 = min(len(a2), len(b2))
+    m2, _, _ = _match_stats(a2, b2, threshold_loose)
+    s += f" · miolo {m2}/{n2}@t{threshold_loose}"
     return s
 
 
@@ -234,17 +346,20 @@ def find_duplicate_post(
     new_hashes: list[imagehash.ImageHash],
     post_index: list[tuple[Path, list[imagehash.ImageHash]]],
     threshold: int = 5,
+    cta_cards: int = 2,
+    threshold_loose: int = 16,
 ) -> Optional[tuple[Path, int]]:
     """Jogo da memoria com matching bipartido maximo (resultado sempre otimo).
 
-    Cada imagem existente so pode ser usada uma vez (bijetivo). Diferente de
-    abordagens gulosas, o algoritmo de augmenting paths garante o maior numero
-    possivel de pares — independente de qual imagem e processada primeiro.
+    Cada imagem existente so pode ser usada uma vez (bijetivo); augmenting paths
+    garante o maior numero possivel de pares, independente da ordem dos cards.
 
-    Regra de duplicata: o conjunto MENOR fica todo emparelhado.
-    - Mesmo post, ordem diferente       → todos emparelhados → REPETIDA
-    - Post novo com 2 cards extras      → existente emparelhado → REPETIDA
-    - Posts que diferem no card final   → ambos ficam com 1 sem par → NAO REPETIDA
+    DUAS regras por candidato (qualquer uma marca REPETIDA):
+    1. CLASSICA: com limiar estrito, todos os cards menos 1 encontram par
+       (pega copias identicas e a troca de 1 card final).
+    2. MIOLO (content_match): ignora os ultimos cta_cards de cada lado e exige o
+       miolo inteiro pareado com limiar tolerante — pega CTA de 2 cards trocada
+       E a recompressao entre downloads (ver medicao no docstring de content_match).
 
     Retorna (pasta_existente, distancia_maxima) se duplicada, None caso contrario.
     """
@@ -255,10 +370,14 @@ def find_duplicate_post(
         if not hashes:
             continue
         needed_full = min(len(new_hashes), len(hashes))
-        # O ultimo card (CTA) muda sempre entre publicacoes do mesmo perfil — ignora 1
+        # Regra 1 — classica: o ultimo card (CTA) sempre muda — ignora 1
         needed = max(1, needed_full - 1)
         matched, max_dist, _ = _match_stats(new_hashes, hashes, threshold)
         if matched >= needed:
             return folder, max_dist
+        # Regra 2 — miolo tolerante (CTA de ate cta_cards + recompressao)
+        ok, mdist = content_match(new_hashes, hashes, threshold_loose, cta_cards)
+        if ok:
+            return folder, mdist
 
     return None

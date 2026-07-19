@@ -10,6 +10,8 @@ DEFAULTS = {
     "person_initial": "Z",
     "slots_per_day": 4,
     "hash_threshold": 5,
+    "cta_cards": 2,              # cards de CTA no FIM do carrossel (mudam entre reposts)
+    "hash_threshold_loose": 16,  # limiar tolerante da regra do miolo (recompressao)
     "include_day_counter": True,
     "include_person_initial": True,
     "theme": "light",

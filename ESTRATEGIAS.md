@@ -1,13 +1,62 @@
-# 🧭 ESTRATÉGIAS — Como o coletor do Feed Especial lê o Instagram
+# 🧭 ESTRATÉGIAS — Registro por Feature (o que cada uma usa e o status dos testes)
 
-Registro das estratégias em uso (e em teste) para o bot enxergar o feed.
-Quando o Instagram mudar o layout, é AQUI que conferimos o que já existe e
-registramos a próxima. **As estratégias não se substituem: são tentadas em
-ordem, e a primeira que funcionar vale.** Atualizar o status conforme os testes.
+Registro vivo das estratégias de cada feature: o que está em uso, o que está em
+teste e o que já foi validado. **As estratégias não se substituem: são tentadas
+em ordem/combinadas, e qualquer uma que funcionar vale.** Atualizar o status
+(✅ validada / 🧪 em teste) conforme os ciclos de teste-reteste.
 
-_Atualizado em: 16/07/2026_
+_Atualizado em: 17/07/2026_
 
 ---
+
+# 🔁 FEATURE: Detecção de Repetidas (Filtro por Link E Filtro Entre Contas)
+
+> Os dois filtros usam a MESMA engine (`dedup.find_duplicate_post`): "jogo da
+> memória" bijetivo — matching bipartido máximo entre os hashes perceptuais
+> (pHash 64 bits) dos cards, cada card só pode parear uma vez.
+
+## Regras de decisão (por candidato — QUALQUER uma marca REPETIDA)
+
+| # | Regra | Como funciona | Pega o quê | Status |
+|---|---|---|---|---|
+| 1 | **Clássica** (tolerância 1) | Limiar estrito (padrão 5): todos os cards menos 1 encontram par | Cópias idênticas · troca de 1 card final | ✅ validada |
+| 2 | **MIOLO tolerante** | Ignora os últimos *N cards de CTA* (padrão 2) **de cada lado** e exige o miolo INTEIRO pareado com limiar tolerante (padrão 16); mínimo de 3 cards no miolo | CTA de 1–2 cards refeita/redesenhada · recompressão entre downloads | 🧪 em teste (validada nos 3 casos reais de 17/07) |
+
+## Evidência medida (caso real: mesma publicação em João Dia1 × Valter Dia10 × João Dia55\2)
+
+- Mesma arte baixada em épocas diferentes: distância pHash **6–14 bits** (recompressão) → estourava o limiar 5 → NENHUM card casava → furo.
+- CTAs trocadas (padrão antigo → novo, 2 cards): distância **24–28**.
+- Cards de publicações DIFERENTES: distância **20+**.
+- → Limiar do miolo **16** = no meio do vão entre 14 (mesma arte) e 20 (outra arte).
+- Resultado: os 3 vazamentos reais viram REPETIDA (miolo 7/7@t16); publicações diferentes seguem limpas.
+
+## Configurações (aba Configurações → Detecção de Duplicatas)
+
+- **Limiar de similaridade** (padrão 5) — regra clássica
+- **Cards de CTA no final** (padrão 2) — quantos cards do fim são ignorados pelo miolo
+- **Limiar do miolo** (padrão 16) — tolerância da regra 2
+- Cache `.hashes.json` com assinatura (nome/tamanho/mtime): troca de card invalida sozinho
+- **Base de comparação**: TODA subpasta (2º nível) da Pasta de Destino com imagens
+  numeradas — incluindo slots renomeados ("7 - Vitrine", "10 - Híbrido") e pastas de
+  coleção. ⚠ Antes só entravam nomes puramente numéricos: slots nomeados ficavam FORA
+  da base e não bloqueavam repetidas (corrigido em 17/07/2026).
+
+## Ferramenta de verificação
+
+- **🔎 Auditar Repetidas** (Configurações → Detecção de Duplicatas): roda as mesmas 2
+  regras da Pasta de Destino contra ela mesma e agrupa por união-busca (grupos de 2,
+  3, N cópias — se A==B e B==C, o grupo é {A,B,C}). Relatório .txt em `data/`,
+  aberto ao terminar. Use após mudar limiares para medir o efeito.
+
+## LOG de diagnóstico
+
+Toda análise "não repetida" loga o candidato mais próximo:
+`mais proximo: Dia10.../4 (0/8 pares · dist max 0) · sem par: dist 6 · miolo 7/7@t16`
+→ se aparecer `miolo N/N` completo mas não marcou, o limiar do miolo está baixo demais; se `sem par: dist ~6-14`, é recompressão.
+
+---
+
+# 🌱 FEATURE: Coletor do Feed Especial (leitura do Instagram)
 
 ## 1. Leitura de curtidas/comentários (nesta ordem)
 

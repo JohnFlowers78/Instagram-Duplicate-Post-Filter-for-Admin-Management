@@ -84,6 +84,22 @@ _Atualizado em: 16/07/2026_
 - [ ] Notificações do sistema no celular (hoje: lembretes agendados via app Claude;
   no futuro: notificações do nosso próprio app)
 
+## 🎯 ENGATILHADO para a próxima sessão (análise tripla de 19/07/2026)
+
+> Contexto: os 3 relatórios (lista de referência do Claude + relatório do app no DB do
+> João + relatório do app no DB do Valter) bateram 100% — 153 e 158 repetidas cruzadas
+> conferem EXATAMENTE com a matemática dos 156 grupos da referência. Filtro consistente
+> e determinístico entre máquinas. Pendências finas:
+
+- [ ] **Validação visual por amostragem** (usuário): conferir ~10 grupos no olho (os 9 de
+  3+ cópias primeiro) → se zero erro, promover a regra do MIOLO de 🧪 para ✅ no ESTRATEGIAS.md
+- [ ] **Marcar no relatório qual regra pegou cada repetida** — "(clássica)" ou "(miolo)" ao
+  lado de cada linha: essencial para calibrar limiares com dados
+- [ ] **Nome do arquivo do Relatório Geral incluir a base comparada** (ex.:
+  `relatorio_geral_VALTER_...txt`) — o usuário hoje renomeia na mão
+- [ ] **Revisar CTAs vazias/não detectadas** nas disponíveis (ex.: Dia22_13_06_26_V\6,
+  Dia2_24_05_26_V\3, Dia9_31_05_26_V\1) — reprocessar OCR ou melhorar classificação
+
 ## 🖥 App
 
 - [ ] Refinar o envio "Coleção → pasta própria" (nomenclatura/sequências) conforme o uso

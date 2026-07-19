@@ -20,7 +20,7 @@ _Atualizado em: 17/07/2026_
 | # | Regra | Como funciona | Pega o quê | Status |
 |---|---|---|---|---|
 | 1 | **Clássica** (tolerância 1) | Limiar estrito (padrão 5): todos os cards menos 1 encontram par | Cópias idênticas · troca de 1 card final | ✅ validada |
-| 2 | **MIOLO tolerante** | Ignora os últimos *N cards de CTA* (padrão 2) **de cada lado** e exige o miolo INTEIRO pareado com limiar tolerante (padrão 16); mínimo de 3 cards no miolo | CTA de 1–2 cards refeita/redesenhada · recompressão entre downloads | 🧪 em teste (validada nos 3 casos reais de 17/07) |
+| 2 | **MIOLO tolerante** | Ignora os últimos *N cards de CTA* (padrão 2) **de cada lado** e exige o miolo INTEIRO pareado com limiar tolerante (padrão 16); mínimo de 3 cards no miolo | CTA de 1–2 cards refeita/redesenhada · recompressão entre downloads | 🧪 quase-validada: consistência TRIPLA em 19/07 (referência × app-João × app-Valter = 100% de acordo, 153/158 conferem com os 156 grupos); falta só a amostragem visual do usuário p/ ✅ |
 
 ## Evidência medida (caso real: mesma publicação em João Dia1 × Valter Dia10 × João Dia55\2)
 

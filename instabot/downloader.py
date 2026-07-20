@@ -337,11 +337,35 @@ def fetch_meta_batch(urls: list[str], progress_cb: ProgressCallback = None,
     return results
 
 
+def _extract_caption(page) -> str:
+    """Legenda da publicacao (best-effort): tenta o <h1> do post e, se vazio,
+    a og:description. Requer sessao logada no Instagram para o post aparecer."""
+    try:
+        return (page.evaluate(
+            """
+            () => {
+                const h1 = document.querySelector('article h1');
+                if (h1 && h1.innerText.trim().length > 0) return h1.innerText.trim();
+                const og = document.querySelector('meta[property="og:description"]');
+                if (og) {
+                    const c = og.content || '';
+                    const m = c.match(/:\\s*["\\u201c\\u201d](.+)["\\u201c\\u201d]\\s*$/s);
+                    return (m ? m[1] : c).trim();
+                }
+                return '';
+            }
+            """
+        ) or "").strip()
+    except Exception:
+        return ""
+
+
 def download_carousel(
     instagram_url: str,
     dest_folder: Path,
     progress_cb: ProgressCallback = None,
     login_wait_cb=None,
+    want_caption: bool = False,
 ) -> tuple[list[Path], dict]:
     dest_folder.mkdir(parents=True, exist_ok=True)
     PROFILE_DIR.mkdir(parents=True, exist_ok=True)
@@ -416,6 +440,13 @@ def download_carousel(
                     page.goto(instagram_url, wait_until="domcontentloaded", timeout=20000)
                     page.wait_for_timeout(2500)
                     ig_meta = _extract_ig_meta(page, shortcode)
+                    if want_caption:
+                        cap = _extract_caption(page)
+                        if cap:
+                            ig_meta["caption"] = cap
+                            _report(progress_cb, "Legenda capturada.")
+                        else:
+                            _report(progress_cb, "Legenda não encontrada (post pode ocultá-la).")
             except Exception:
                 pass
         finally:

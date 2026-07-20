@@ -47,6 +47,47 @@ _Atualizado em: 17/07/2026_
   onde já existe (`dup_locations`, sem parar na primeira) — alimenta o "⚠ REPETIDAS: X ▾"
   do cartão (passar o mouse abre um botão 📁 por pasta).
 
+# 🤖 FEATURE: Edição CARDs Finais (automação chatgpt.com)
+
+> Automação do **chatgpt.com via navegador** (perfil próprio `chatgpt_profile`, login
+> pela seção Logins). Frágil por natureza — o DOM do ChatGPT muda muito. Refinar com
+> LOGs reais (mesmo método do feedbot). Storage dos perfis: `card_scripts.json`.
+
+## Estratégias de seletor (chatgpt.py) — todas 🧪 em teste
+
+| Alvo | Estratégia (em camadas) |
+|---|---|
+| Login | existe `#prompt-textarea` OU `div[contenteditable]`/`textarea` → logado |
+| Anexar imagens | `input[type=file]` → `set_input_files` (até 30) |
+| Caixa de texto | `#prompt-textarea` → `div[contenteditable]` → `textarea[data-testid]` → `textarea` |
+| Enviar | `keyboard.insert_text` + Enter |
+| Fim da geração | some `button[data-testid=stop-button]` / aria "Parar"/"Stop" |
+| Ler resposta | último `[data-message-author-role="assistant"]` → innerText |
+| Imagens geradas | `<img>` http do último bloco assistant → download p/ `cards_gerados/` |
+
+- **Fluxo**: script + exemplos-base fixos → gera Card Final; depois Legenda (base numa
+  legenda-exemplo). Cartões da "Lista de Publicações do Dia" (aba, read-only) têm
+  **Editar CTA** que anexa as imagens da publicação como contexto.
+
+# 📅 FEATURE: Postagem/Programação (poster.py — AGUARDANDO PRINTS)
+
+> Automação do modal de criação do Instagram por navegador, **conta EXCLUSIVA de
+> postagem** (`poster_profile`, separada por segurança). `IMPLEMENTED=False` até os
+> seletores entrarem — não posta nada real por enquanto.
+
+Passos do modal a mapear com os prints (cada um vira um TODO já marcado no poster.py):
+1. Abrir "Criar" (＋) / Nova publicação
+2. `set_input_files` com as imagens na ORDEM numérica (1,2,3…)
+3. Recorte/proporção → "Avançar"; efeitos → "Avançar"
+4. Escrever a legenda (= conteúdo do Legenda.txt)
+5. Marcar pessoas: abrir, digitar cada @ salvo, confirmar (multi)
+6. **Música em alta**: abrir painel, filtrar itens com a flecha ↗ (tendência),
+   escolher UMA ao acaso (usuário troca depois na mão → menos suspeita de bot)
+7. "Compartilhar" e aguardar a confirmação de publicado
+
+Motor (postplan.py — ✅ testado): 8 horários-base × 5 variantes, variância 0/20/30/40,
+sorteio sem 3 variantes iguais seguidas, imediata×agendada, vigia 24h via due_posts().
+
 ## Ferramenta de verificação
 
 - **🔎 Auditar Repetidas** (Configurações → Detecção de Duplicatas): roda as mesmas 2
@@ -101,6 +142,21 @@ Toda análise "não repetida" loga o candidato mais próximo:
 | A | `Input.setIgnoreInputEvents` (CDP) | Mouse/teclado MANUAIS sobre a janela do robô são ignorados (rolagem acidental não atrapalha) | 🧪 em teste |
 | B | Troca automática p/ rolagem via JS | Se o escudo também travar a roda do PRÓPRIO bot (scrollY parado 3 ciclos), rola via `window.scrollBy` | 🧪 em teste |
 | C | Flags anti-throttling (`--disable-backgrounding-occluded-windows`, `--disable-renderer-backgrounding`) | Janelas por cima NÃO pausam o render/lazy-load — melhor que pausar a coleta: não perde publicações nem tempo | 🧪 em teste |
+
+## 5b. Janela do navegador do robô ao ÚLTIMO PLANO
+
+| # | Estratégia | Detalhe | Status |
+|---|---|---|---|
+| A | `winutil.send_chrome_windows_to_back` | ctypes/EnumWindows → `SetWindowPos(HWND_BOTTOM, NOACTIVATE)` em toda janela cujo título termina em "Google Chrome". Chamado 4× nos primeiros 6 s (a janela surge async). Só afeta Chrome; o app Tk fica na frente | 🧪 em teste (SnapInsta + Feed) |
+| — | Fallback (minimizar tudo/restaurar) | NÃO implementado — a estratégia A resolve sem mexer nas outras janelas | 📋 reserva |
+
+## 5c. Legenda do post (Filtro por Link, opcional)
+
+| # | Estratégia | Detalhe | Status |
+|---|---|---|---|
+| 1 | `<h1>` do article | Novo layout: a legenda costuma estar no primeiro `<h1>` | 🧪 em teste |
+| 2 | `og:description` | Fallback: extrai o trecho entre aspas da meta description | 🧪 em teste |
+- Só roda com a caixa "Baixar Carrossel com Legenda?" marcada; requer login no Instagram.
 
 ## 6. Capa das publicações no Feed Especial (nesta ordem)
 

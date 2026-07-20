@@ -2,6 +2,7 @@ import json
 import os
 import re
 import shutil
+import sys
 import tempfile
 import threading
 import tkinter as tk
@@ -13,6 +14,8 @@ from tkinter import filedialog, ttk
 
 from PIL import Image, ImageDraw, ImageTk
 
+import cardscripts
+import chatgpt
 import config
 import crossaccount
 import cta
@@ -21,6 +24,8 @@ import downloader
 import feedbot
 import feedinbox
 import organizer
+import postplan
+import poster
 import waitqueue
 from paths import DATA_DIR, ASSETS_DIR
 
@@ -308,6 +313,7 @@ class App(tk.Tk):
         for key, label in [("feed", "  Feed  "),
                            ("link", "  Filtro por Link  "),
                            ("cross", "  Filtro Entre Contas  "),
+                           ("cards", "  Edição CARDs Finais  "),
                            ("reports", "  Relatórios  "),
                            ("settings", "  Configurações  ")]:
             col = tk.Frame(tab_bar, bg=PANEL)
@@ -344,6 +350,7 @@ class App(tk.Tk):
             ("feed",     self._build_feed_tab),
             ("link",     self._build_link_tab),
             ("cross",    self._build_cross_tab),
+            ("cards",    self._build_cards_tab),
             ("reports",  self._build_reports_tab),
             ("settings", self._build_settings_tab),
         ]:
@@ -369,6 +376,9 @@ class App(tk.Tk):
             self._reload_feed_view()
         if name == "reports":
             self._populate_report_lists()
+        if name == "cards":
+            self._reload_history_panel()
+            self._refresh_script_profiles()
 
     # ------------------------------------------------------------------
     # Chave seletora de modo (usar agora / fila de espera)
@@ -1407,6 +1417,21 @@ class App(tk.Tk):
         self.btn_start = self._btn(link_row, _start_txt, self.start_pipeline, "primary")
         self.btn_start.pack(side="left")
 
+        # Opcoes da analise por link: legenda + fila de downloads
+        opt_row = tk.Frame(card2, bg=PANEL)
+        opt_row.pack(fill="x", pady=(6, 0))
+        self._var_caption = tk.BooleanVar(value=bool(self.cfg.get("download_caption", False)))
+        tk.Checkbutton(
+            opt_row, text="Baixar Carrossel com Legenda?", variable=self._var_caption,
+            font=FONT_B, bg=PANEL, fg=TXT_B, activebackground=PANEL,
+            activeforeground=TXT_H, selectcolor=PANEL, cursor="hand2",
+            command=self._save_caption_pref,
+        ).pack(side="left")
+        # Indicador da fila de downloads (empilhamento de links)
+        self._dl_queue_lbl = tk.Label(opt_row, text="", font=FONT_S, bg=PANEL,
+                                      fg=ACCENT, anchor="e")
+        self._dl_queue_lbl.pack(side="right", fill="x", expand=True)
+
         # Card: progresso
         outer3, card3 = self._make_card(page, "Progresso")
         outer3.pack(fill="x", **PAD)
@@ -1464,10 +1489,11 @@ class App(tk.Tk):
         hist_holder.pack(fill="both", expand=True, side="top")
         self._build_history_panel(hist_holder)
 
-    def _build_history_panel(self, parent):
+    def _build_history_panel(self, parent, variant: str = "full", title: str = "HISTÓRICO DE ENVIOS"):
         """Painel de Historico de Envios (compartilhado entre as abas).
-        Cada aba tem seu proprio canvas; todos recarregam do mesmo history.json."""
-        # Cabecalho:  ◀  HISTÓRICO DE ENVIOS  ▶ ............... Resetar
+        variant='full': com Resetar/Retornar/×. variant='cta': so leitura +
+        botao 'Editar CTA' por cartao (aba Edicao CARDs Finais)."""
+        # Cabecalho:  ◀  TITULO  ▶ ............... [Resetar]
         hist_hdr = tk.Frame(parent, bg=BG)
         hist_hdr.pack(fill="x", padx=12, pady=(0, 0))
         left = tk.Label(hist_hdr, text="◀", font=("Segoe UI", 11, "bold"),
@@ -1475,15 +1501,18 @@ class App(tk.Tk):
         left.pack(side="left", padx=(0, 5))
         left.bind("<Button-1>", lambda e: self._hist_go(1))     # dia mais antigo
         tk.Label(
-            hist_hdr, text="HISTÓRICO DE ENVIOS",
+            hist_hdr, text=title,
             font=FONT_LBL, bg=BG, fg=TXT_M, anchor="w",
         ).pack(side="left")
         right = tk.Label(hist_hdr, text="▶", font=("Segoe UI", 11, "bold"),
                          bg=BG, fg=TXT_M, cursor="hand2")
         right.pack(side="left", padx=(5, 0))
         right.bind("<Button-1>", lambda e: self._hist_go(-1))   # dia mais novo
-        reset_btn = self._btn(hist_hdr, "Resetar", self._reset_history, "danger_sm")
-        reset_btn.pack(side="right")
+        header = {"day": None, "left": left, "right": right}
+        if variant == "full":
+            reset_btn = self._btn(hist_hdr, "Resetar", self._reset_history, "danger_sm")
+            reset_btn.pack(side="right")
+            header["reset"] = reset_btn
 
         # Rotulo do dia que estamos vendo (centralizado)
         nav = tk.Frame(parent, bg=BG)
@@ -1491,8 +1520,8 @@ class App(tk.Tk):
         day_lbl = tk.Label(nav, text="Lista de Publicações do Dia", font=FONT_S,
                            bg=BG, fg=TXT_B, anchor="center")
         day_lbl.pack(fill="x", expand=True)
-        self._hist_headers.append({"day": day_lbl, "left": left, "right": right,
-                                   "reset": reset_btn})
+        header["day"] = day_lbl
+        self._hist_headers.append(header)
 
         hist_outer = tk.Frame(parent, bg=BORDER, padx=1, pady=1)
         hist_outer.pack(fill="both", expand=True, padx=12, pady=(0, 10))
@@ -1511,6 +1540,7 @@ class App(tk.Tk):
         canvas.bind("<Enter>", lambda e, c=canvas: c.bind_all(
             "<MouseWheel>", lambda ev, cc=c: cc.yview_scroll(int(-1 * (ev.delta / 120)), "units")))
         canvas.bind("<Leave>", lambda e, c=canvas: c.unbind_all("<MouseWheel>"))
+        inner._hist_variant = variant   # 'full' | 'cta' — controla os botoes da linha
         self._hist_inners.append(inner)
         self._start_day_watch()
 
@@ -1639,6 +1669,12 @@ class App(tk.Tk):
         self._feed_status_lbl = tk.Label(r3, text="", font=FONT_S, bg=PANEL, fg=TXT_M, anchor="e")
         self._feed_status_lbl.pack(side="right", fill="x", expand=True)
 
+        # Cronometro GRANDE (letreiro vermelho sobre preto) — so durante a coleta
+        self._feed_timer_lbl = tk.Label(
+            card, text="", font=("Consolas", 16, "bold"),
+            bg="#000000", fg="#FF3B3B", anchor="center", pady=6,
+        )
+
         # LOGs da coleta (compactos)
         logs_holder = tk.Frame(page, bg=BG, height=92)
         logs_holder.pack(fill="x", pady=(6, 0), padx=12)
@@ -1726,11 +1762,21 @@ class App(tk.Tk):
         except (ValueError, tk.TclError):
             self._feed_run_minutes = 10
         self._feed_run_started = datetime.now()
+        try:
+            if not self._feed_timer_lbl.winfo_ismapped():
+                self._feed_timer_lbl.pack(fill="x", pady=(8, 0))
+        except tk.TclError:
+            pass
         self._feed_timer_tick()
+        self._send_browser_to_back_soon()   # coloca o navegador do robo no fundo
         threading.Thread(target=self._run_feed_collect, daemon=True).start()
 
     def _feed_timer_tick(self):
         if not getattr(self, "_feed_collect_busy", False):
+            try:
+                self._feed_timer_lbl.pack_forget()   # esconde o letreiro ao parar
+            except tk.TclError:
+                pass
             self._update_feed_status()   # volta ao status normal do feed
             return
         start = getattr(self, "_feed_run_started", None)
@@ -1743,12 +1789,35 @@ class App(tk.Tk):
             return f"{int(s // 60):02d}:{int(s % 60):02d}"
 
         try:
-            self._feed_status_lbl.config(
-                text=f"⏱ Coletando — início {start.strftime('%H:%M:%S')} · "
-                     f"decorrido {fmt(elapsed)} · restam {fmt(remain)}")
+            self._feed_timer_lbl.config(
+                text=f"● PESCANDO  {fmt(elapsed)}  ▸  faltam {fmt(remain)}   "
+                     f"[início {start.strftime('%H:%M:%S')}]")
         except tk.TclError:
             pass
         self.after(1000, self._feed_timer_tick)
+
+    def _save_caption_pref(self):
+        self.cfg["download_caption"] = bool(self._var_caption.get())
+        config.save_config(self.cfg)
+
+    # ------------------------------------------------------------------
+    # Janela do navegador do robo -> ultimo plano (SnapInsta / Feed)
+    # ------------------------------------------------------------------
+
+    def _send_browser_to_back_soon(self):
+        """Empurra a janela do Chrome do robo para o fundo algumas vezes nos
+        primeiros segundos (a janela surge de forma assincrona apos o launch)."""
+        if sys.platform != "win32":
+            return
+        for delay in (1500, 2800, 4200, 6000):
+            self.after(delay, self._send_browser_to_back)
+
+    def _send_browser_to_back(self):
+        try:
+            import winutil
+            winutil.send_chrome_windows_to_back()
+        except Exception:
+            pass
 
     def _run_feed_collect(self):
         try:
@@ -1949,9 +2018,6 @@ class App(tk.Tk):
     def _feed_save_item(self, item: dict):
         """Salvar do feed = pipeline existente em modo fila (baixa via SnapInsta,
         checa repetidas) + colecao de destino. No sucesso o item sai do feed."""
-        if getattr(self, "_metrics_busy", False) or str(self.btn_start["state"]) == "disabled":
-            self._show_toast("Aguarde o processo atual terminar.", 4000, ERR_BG, ERR_FG)
-            return
         if getattr(self, "_feed_collect_busy", False):
             self._show_toast("Aguarde (ou pare) a coleta para salvar.", 4000, ERR_BG, ERR_FG)
             return
@@ -1962,19 +2028,14 @@ class App(tk.Tk):
         ok, dest = self._ask_feed_dest()
         if not ok:
             return
-        self.btn_start.config(state="disabled")
-        self.btn_paste_clear.config(state="disabled")
-        self.progress["value"] = 0
-        self.lbl_status.config(text=STEPS[0])
-        self.clear_log()
         self._feed_log(f"Salvando {item.get('shortcode', '?')} nos Salvos… "
                        "(progresso na aba Filtro por Link)")
-        threading.Thread(
-            target=self._run_pipeline,
-            args=(item.get("url", ""), Path(db), "queue", dest),
-            kwargs={"feed_mark": (self._feed_id, item.get("id", ""))},
-            daemon=True,
-        ).start()
+        # Entra na MESMA fila de downloads (empilha se algo estiver rodando)
+        self._enqueue_pipeline({
+            "link": item.get("url", ""), "db_folder": Path(db), "mode": "queue",
+            "dest_col": dest, "feed_mark": (self._feed_id, item.get("id", "")),
+            "want_caption": bool(self._var_caption.get()),
+        })
 
     def _send_entry_to_collection_folder(self, entry: dict):
         """Materializa a publicacao na PASTA da colecao aberta: cria (se preciso)
@@ -2015,6 +2076,335 @@ class App(tk.Tk):
         feedinbox.set_item_status(self._feed_id, item.get("id", ""), "discarded")
         self._reload_feed_view(keep_scroll=True)
         self._show_toast("Descartada — o filtro aprende com isso.", 2500, OK_BG, OK_FG)
+
+    # ------------------------------------------------------------------
+    # Aba: Edicao CARDs Finais | CTA | Legenda
+    # ------------------------------------------------------------------
+
+    def _build_cards_tab(self, page):
+        self._card_attachments = []      # imagens de contexto (ate 30)
+        self._card_current_pid = None    # perfil de script selecionado
+        self._card_last_images = []      # imagens geradas na ultima requisicao
+
+        # --- TOPO: a Lista de Publicacoes do Dia (read-only + Editar CTA) ---
+        top = tk.Frame(page, bg=BG, height=210)
+        top.pack(fill="x", side="top")
+        top.pack_propagate(False)
+        self._build_history_panel(top, variant="cta",
+                                  title="LISTA DE PUBLICAÇÕES DO DIA")
+
+        # --- EDITOR (area rolavel) ---
+        ecanvas = tk.Canvas(page, borderwidth=0, highlightthickness=0, bg=BG)
+        esb = ttk.Scrollbar(page, orient="vertical", command=ecanvas.yview)
+        ecanvas.configure(yscrollcommand=esb.set)
+        einner = tk.Frame(ecanvas, bg=BG)
+        eid = ecanvas.create_window((0, 0), window=einner, anchor="nw")
+        ecanvas.pack(side="left", fill="both", expand=True)
+        esb.pack(side="right", fill="y")
+        einner.bind("<Configure>", lambda e, c=ecanvas: c.configure(scrollregion=c.bbox("all")))
+        ecanvas.bind("<Configure>", lambda e, c=ecanvas, i=eid: c.itemconfigure(i, width=e.width))
+        ecanvas.bind("<Enter>", lambda e, c=ecanvas: c.bind_all(
+            "<MouseWheel>", lambda ev, cc=c: cc.yview_scroll(int(-1 * (ev.delta / 120)), "units")))
+        ecanvas.bind("<Leave>", lambda e, c=ecanvas: c.unbind_all("<MouseWheel>"))
+        page = einner
+        PAD = {"padx": 12, "pady": (8, 0)}
+
+        # Card: perfis de script (botoes reutilizaveis)
+        outer_p, card_p = self._make_card(page, "Perfis de Script (reutilizáveis)")
+        outer_p.pack(fill="x", **PAD)
+        self._script_btns_row = tk.Frame(card_p, bg=PANEL)
+        self._script_btns_row.pack(fill="x")
+        self._refresh_script_profiles()
+
+        # Card: editor do script
+        outer_e, card_e = self._make_card(page, "Script para o ChatGPT")
+        outer_e.pack(fill="x", **PAD)
+
+        nrow = tk.Frame(card_e, bg=PANEL)
+        nrow.pack(fill="x")
+        tk.Label(nrow, text="Nome:", font=FONT_B, bg=PANEL, fg=TXT_B).pack(side="left")
+        self._card_name = tk.StringVar()
+        nwrap = tk.Frame(nrow, bg=BORDER, padx=1, pady=1)
+        nwrap.pack(side="left", fill="x", expand=True, padx=(6, 8))
+        tk.Entry(nwrap, textvariable=self._card_name, font=FONT_B, bg=INNER, fg=TXT_H,
+                 insertbackground=TXT_H, relief="flat", bd=0).pack(fill="x", ipady=3)
+        tk.Label(nrow, text="Título de capa:", font=FONT_B, bg=PANEL, fg=TXT_B).pack(side="left")
+        self._card_cover = tk.StringVar()
+        cb = ttk.Combobox(nrow, textvariable=self._card_cover, font=FONT_S, width=16,
+                          values=cardscripts.COVER_SUGGESTIONS)
+        cb.pack(side="left", padx=(6, 0))
+
+        twrap = tk.Frame(card_e, bg=BORDER, padx=1, pady=1)
+        twrap.pack(fill="x", pady=(8, 0))
+        self._card_script = tk.Text(twrap, height=6, wrap="word", font=FONT_B,
+                                    bg=INNER, fg=TXT_H, insertbackground=TXT_H,
+                                    relief="flat", bd=0)
+        self._card_script.pack(fill="x", padx=2, pady=2)
+
+        arow = tk.Frame(card_e, bg=PANEL)
+        arow.pack(fill="x", pady=(8, 0))
+        self._btn(arow, "🖼 Imagem-exemplo do perfil…", self._pick_example_image,
+                  "secondary_sm").pack(side="left")
+        self._card_example_lbl = tk.Label(arow, text="(nenhuma)", font=FONT_S,
+                                          bg=PANEL, fg=TXT_M)
+        self._card_example_lbl.pack(side="left", padx=(6, 0))
+        self._btn(arow, "🗑 Apagar Perfil", self._delete_script_profile,
+                  "danger_sm").pack(side="right")
+        self._btn(arow, "💾 Salvar Perfil", self._save_script_profile,
+                  "secondary_sm").pack(side="right", padx=(0, 6))
+        self._btn(arow, "＋ Novo", self._new_script_profile,
+                  "secondary_sm").pack(side="right", padx=(0, 6))
+
+        # Card: requisicao (imagens de contexto + gerar)
+        outer_r, card_r = self._make_card(page, "Requisição ao ChatGPT")
+        outer_r.pack(fill="x", **PAD)
+        ir = tk.Frame(card_r, bg=PANEL)
+        ir.pack(fill="x")
+        self._btn(ir, "📎 Anexar imagens (até 30)", self._attach_card_images,
+                  "secondary_sm").pack(side="left")
+        self._card_attach_lbl = tk.Label(ir, text="Anexos: 0/30", font=FONT_S,
+                                         bg=PANEL, fg=TXT_M)
+        self._card_attach_lbl.pack(side="left", padx=(8, 0))
+        self._btn(ir, "Limpar anexos", self._clear_card_attachments,
+                  "secondary_sm").pack(side="left", padx=(8, 0))
+        gr = tk.Frame(card_r, bg=PANEL)
+        gr.pack(fill="x", pady=(8, 0))
+        self._btn(gr, "🖼 Gerar Card Final", lambda: self._gen_chatgpt("card"),
+                  "primary").pack(side="left")
+        self._btn(gr, "📝 Gerar Legenda", lambda: self._gen_chatgpt("caption"),
+                  "primary").pack(side="left", padx=(8, 0))
+        self._card_gen_status = tk.Label(gr, text="", font=FONT_S, bg=PANEL, fg=ACCENT,
+                                         anchor="e")
+        self._card_gen_status.pack(side="right", fill="x", expand=True)
+
+        # Card: resposta do ChatGPT
+        outer_a, card_a = self._make_card(page, "Resposta do ChatGPT")
+        outer_a.pack(fill="both", expand=True, **PAD)
+        rwrap = tk.Frame(card_a, bg=BORDER, padx=1, pady=1)
+        rwrap.pack(fill="both", expand=True)
+        rsb = ttk.Scrollbar(rwrap, orient="vertical")
+        self._card_response = tk.Text(rwrap, height=6, wrap="word", state="disabled",
+                                     yscrollcommand=rsb.set, font=("Consolas", 8),
+                                     bg=INNER, fg=TXT_B, relief="flat", bd=0)
+        rsb.config(command=self._card_response.yview)
+        self._card_response.pack(side="left", fill="both", expand=True)
+        rsb.pack(side="right", fill="y")
+        dr = tk.Frame(card_a, bg=PANEL)
+        dr.pack(fill="x", pady=(8, 4))
+        self._btn(dr, "📁 Pasta de Gerados", lambda: self._open_folder(str(cardscripts.gen_dir())),
+                  "secondary_sm").pack(side="left")
+        self._card_dl_btn = self._btn(dr, "⤓ Abrir última imagem gerada",
+                                      self._open_last_card_image, "secondary_sm")
+        self._card_dl_btn.pack(side="left", padx=(8, 0))
+
+    # --- Perfis de script ---
+
+    def _refresh_script_profiles(self):
+        row = getattr(self, "_script_btns_row", None)
+        if row is None:
+            return
+        for w in row.winfo_children():
+            w.destroy()
+        self._card_prof_thumbs = getattr(self, "_card_prof_thumbs", [])
+        self._card_prof_thumbs.clear()
+        profs = cardscripts.profiles()
+        if not profs:
+            tk.Label(row, text="Nenhum perfil salvo. Escreva um script e clique 💾 Salvar Perfil.",
+                     font=FONT_S, bg=PANEL, fg=TXT_M).pack(anchor="w")
+            return
+        for prof in profs:
+            b = tk.Frame(row, bg=BORDER, padx=1, pady=1)
+            b.pack(side="left", padx=(0, 6), pady=2)
+            inner = tk.Frame(b, bg=INNER, padx=6, pady=4, cursor="hand2")
+            inner.pack()
+            ex = prof.get("example_image", "")
+            if ex and Path(ex).exists():
+                try:
+                    im = Image.open(ex)
+                    im.thumbnail((34, 34), Image.LANCZOS)
+                    ph = ImageTk.PhotoImage(im)
+                    self._card_prof_thumbs.append(ph)
+                    tk.Label(inner, image=ph, bg=INNER).pack(side="left", padx=(0, 5))
+                except Exception:
+                    pass
+            txt = tk.Frame(inner, bg=INNER)
+            txt.pack(side="left")
+            tk.Label(txt, text=prof.get("name", "?"), font=FONT_SH, bg=INNER,
+                     fg=TXT_H, anchor="w").pack(anchor="w")
+            ct = prof.get("cover_title", "")
+            if ct:
+                tk.Label(txt, text=ct, font=FONT_S, bg=INNER, fg=ACCENT,
+                         anchor="w").pack(anchor="w")
+            for w in (inner, txt):
+                w.bind("<Button-1>", lambda e, pid=prof["id"]: self._load_script_profile(pid))
+            for child in txt.winfo_children():
+                child.bind("<Button-1>", lambda e, pid=prof["id"]: self._load_script_profile(pid))
+
+    def _new_script_profile(self):
+        self._card_current_pid = None
+        self._card_name.set("")
+        self._card_cover.set("")
+        self._card_script.delete("1.0", "end")
+        self._card_example_src = ""
+        self._card_example_lbl.config(text="(nenhuma)")
+        self._show_toast("Novo perfil — preencha e salve.", 2500, OK_BG, OK_FG)
+
+    def _load_script_profile(self, pid: str):
+        prof = cardscripts.get_profile(pid)
+        if not prof:
+            return
+        self._card_current_pid = pid
+        self._card_name.set(prof.get("name", ""))
+        self._card_cover.set(prof.get("cover_title", ""))
+        self._card_script.delete("1.0", "end")
+        self._card_script.insert("1.0", prof.get("script", ""))
+        self._card_example_src = ""
+        ex = prof.get("example_image", "")
+        self._card_example_lbl.config(text=Path(ex).name if ex else "(nenhuma)")
+        self._show_toast(f"Perfil '{prof.get('name', '?')}' carregado.", 2500, OK_BG, OK_FG)
+
+    def _pick_example_image(self):
+        path = filedialog.askopenfilename(
+            title="Imagem-exemplo do perfil",
+            filetypes=[("Imagens", "*.jpg *.jpeg *.png *.webp")])
+        if path:
+            self._card_example_src = path
+            self._card_example_lbl.config(text=Path(path).name)
+
+    def _save_script_profile(self):
+        name = self._card_name.get().strip()
+        if not name:
+            self._show_toast("Dê um nome ao perfil.", 3000, ERR_BG, ERR_FG)
+            return
+        script = self._card_script.get("1.0", "end").strip()
+        cover = self._card_cover.get().strip()
+        ex = getattr(self, "_card_example_src", "")
+        if self._card_current_pid:
+            cardscripts.update_profile(self._card_current_pid, name=name,
+                                       cover_title=cover, script=script,
+                                       example_image_src=ex)
+        else:
+            prof = cardscripts.create_profile(name, cover, script, ex)
+            self._card_current_pid = prof["id"]
+        self._card_example_src = ""
+        self._refresh_script_profiles()
+        self._show_toast("Perfil salvo.", 2500, OK_BG, OK_FG)
+
+    def _delete_script_profile(self):
+        if not self._card_current_pid:
+            self._show_toast("Nenhum perfil carregado para apagar.", 3000, ERR_BG, ERR_FG)
+            return
+        if not self._confirm_dialog("Apagar perfil",
+                                    "Apagar este perfil de script?"):
+            return
+        cardscripts.delete_profile(self._card_current_pid)
+        self._new_script_profile()
+        self._refresh_script_profiles()
+        self._show_toast("Perfil apagado.", 2500, OK_BG, OK_FG)
+
+    # --- Anexos e requisicao ---
+
+    def _attach_card_images(self):
+        paths = filedialog.askopenfilenames(
+            title="Anexar imagens de contexto (até 30)",
+            filetypes=[("Imagens", "*.jpg *.jpeg *.png *.webp")])
+        for p in paths:
+            if len(self._card_attachments) >= 30:
+                break
+            if p not in self._card_attachments:
+                self._card_attachments.append(p)
+        self._update_attach_lbl()
+
+    def _clear_card_attachments(self):
+        self._card_attachments = []
+        self._update_attach_lbl()
+
+    def _update_attach_lbl(self):
+        try:
+            self._card_attach_lbl.config(text=f"Anexos: {len(self._card_attachments)}/30")
+        except (tk.TclError, AttributeError):
+            pass
+
+    def _edit_cta_for_entry(self, entry: dict):
+        """'Editar CTA' de um cartao: carrega as imagens da publicação como anexos
+        de contexto e leva o foco para o editor (para pedir o novo card final)."""
+        db = self.cfg.get("db_folder", "")
+        folder = entry.get("folder", "")
+        slot = Path(db) / folder if db and folder else None
+        imgs = dedup._sorted_numbered_images(slot) if (slot and slot.is_dir()) else []
+        self._card_attachments = [str(p) for p in imgs][:30]
+        self._update_attach_lbl()
+        if imgs:
+            self._show_toast(f"{len(self._card_attachments)} imagem(ns) de '{folder}' "
+                             "anexadas. Escolha um perfil e gere.", 4000, OK_BG, OK_FG)
+        else:
+            self._show_toast("Não encontrei imagens dessa publicação na Pasta de Destino.",
+                             4000, ERR_BG, ERR_FG)
+
+    def _card_log(self, msg: str):
+        def apply():
+            try:
+                self._card_response.config(state="normal")
+                self._card_response.insert("end", msg + "\n")
+                self._card_response.see("end")
+                self._card_response.config(state="disabled")
+            except tk.TclError:
+                pass
+        self.after(0, apply)
+
+    def _set_card_status(self, text: str):
+        try:
+            self._card_gen_status.config(text=text)
+        except (tk.TclError, AttributeError):
+            pass
+
+    def _gen_chatgpt(self, kind: str):
+        """Monta o prompt (script + exemplos-base) e dispara a requisição ao
+        ChatGPT numa thread. kind: 'card' | 'caption'."""
+        if getattr(self, "_card_busy", False):
+            self._show_toast("Aguarde a requisição atual terminar.", 4000, ERR_BG, ERR_FG)
+            return
+        script = self._card_script.get("1.0", "end").strip()
+        if not script:
+            self._show_toast("Escreva (ou carregue) um script primeiro.", 4000, ERR_BG, ERR_FG)
+            return
+        base = cardscripts.get_base_examples()
+        alvo = ("Gere o CARD FINAL (imagem) seguindo o script."
+                if kind == "card"
+                else "Gere a LEGENDA correspondente, com base na legenda-exemplo do script.")
+        prompt = f"{alvo}\n\n[EXEMPLOS-BASE]\n{base}\n\n[SCRIPT]\n{script}"
+        attachments = list(self._card_attachments)
+        self._card_busy = True
+        self._set_card_status("⏳ enviando ao ChatGPT…")
+        self._card_log(f"── {alvo}")
+        threading.Thread(target=self._run_chatgpt, args=(prompt, attachments), daemon=True).start()
+
+    def _run_chatgpt(self, prompt: str, attachments: list):
+        self._send_browser_to_back_soon()
+        try:
+            res = chatgpt.send_prompt(prompt, attachments, progress_cb=self._card_log,
+                                      login_wait_cb=self._login_wait_cb)
+            txt = res.get("text", "")
+            imgs = res.get("images", [])
+            if txt:
+                self._card_log("── RESPOSTA:\n" + txt)
+            if imgs:
+                self._card_last_images = imgs
+                self._card_log(f"Imagens salvas: {', '.join(Path(i).name for i in imgs)}")
+            if res.get("error"):
+                self._card_log(f"⚠ {res['error']}")
+        except Exception as exc:
+            self._card_log(f"ERRO: {exc}")
+        finally:
+            self._card_busy = False
+            self.after(0, lambda: self._set_card_status(""))
+
+    def _open_last_card_image(self):
+        imgs = getattr(self, "_card_last_images", [])
+        if imgs and Path(imgs[-1]).exists():
+            self._open_folder(imgs[-1])
+        else:
+            self._open_folder(str(cardscripts.gen_dir()))
 
     # ------------------------------------------------------------------
     # Aba: Relatorios
@@ -2437,8 +2827,8 @@ class App(tk.Tk):
         )
         self.btn_audit.pack(side="right", padx=(10, 0))
 
-        # Card: logins do Instagram (uma sessao de navegador por funcao)
-        outer_lg, card_lg = self._make_card(page, "Logins do Instagram (por função)")
+        # Card: logins por funcao (Instagram + ChatGPT)
+        outer_lg, card_lg = self._make_card(page, "Logins (por função)")
         outer_lg.pack(fill="x", **PAD)
         tk.Label(
             card_lg,
@@ -2450,12 +2840,14 @@ class App(tk.Tk):
         self._login_btns = {}
         self._login_status_lbls = {}
         for kind, title, desc in [
-            ("analysis", "Análise por Link (métricas)",
+            ("analysis", "Instagram — Análise por Link (métricas)",
              "Conta usada para buscar curtidas/comentários das publicações analisadas"),
-            ("feed", "Feed Especial (conta-isca)",
+            ("feed", "Instagram — Feed Especial (conta-isca)",
              "Conta cujo feed o robô rola para captar publicações do seu gosto"),
-            ("publish", "Programar Publicações",
-             "Inativo — reservado para a futura função de agendar posts"),
+            ("chatgpt", "ChatGPT — Edição CARDs Finais",
+             "Conta do ChatGPT usada para gerar cards finais e legendas"),
+            ("publish", "Instagram — Postagem/Programação",
+             "Conta EXCLUSIVA de postagem (separada das outras por segurança)"),
         ]:
             r = tk.Frame(card_lg, bg=PANEL)
             r.pack(fill="x", pady=(4, 0))
@@ -2471,7 +2863,6 @@ class App(tk.Tk):
                           lambda k=kind: self._open_login_browser(k), "secondary")
             b.pack(side="right", padx=(10, 0))
             self._login_btns[kind] = b
-        self._login_btns["publish"].config(state="disabled", text="Em breve")
 
         # Card: aparencia (tema claro / escuro)
         outer4, card4 = self._make_card(page, "Aparência")
@@ -2774,6 +3165,14 @@ class App(tk.Tk):
     _LOGIN_PROFILES = {
         "analysis": lambda: downloader.PROFILE_DIR,
         "feed": lambda: feedbot.PROFILE_DIR,
+        "chatgpt": lambda: chatgpt.PROFILE_DIR,
+        "publish": lambda: poster.PROFILE_DIR,
+    }
+    _LOGIN_URLS = {
+        "analysis": "https://www.instagram.com/",
+        "feed": "https://www.instagram.com/",
+        "chatgpt": "https://chatgpt.com/",
+        "publish": "https://www.instagram.com/",
     }
 
     def _open_login_browser(self, kind: str):
@@ -2783,7 +3182,7 @@ class App(tk.Tk):
             self._show_toast("Feche o navegador de login que já está aberto.", 4000, ERR_BG, ERR_FG)
             return
         if kind == "analysis":
-            if getattr(self, "_metrics_busy", False) or str(self.btn_start["state"]) == "disabled":
+            if getattr(self, "_metrics_busy", False) or getattr(self, "_pipeline_busy", False):
                 self._show_toast("Aguarde o processo que usa este navegador terminar.",
                                  4000, ERR_BG, ERR_FG)
                 return
@@ -2792,8 +3191,18 @@ class App(tk.Tk):
                 self._show_toast("Pare a coleta do feed antes de mexer neste login.",
                                  4000, ERR_BG, ERR_FG)
                 return
+        elif kind == "chatgpt":
+            if getattr(self, "_card_busy", False):
+                self._show_toast("Aguarde a requisição ao ChatGPT terminar.",
+                                 4000, ERR_BG, ERR_FG)
+                return
+        elif kind == "publish":
+            if getattr(self, "_posting_busy", False):
+                self._show_toast("Aguarde a postagem em andamento terminar.",
+                                 4000, ERR_BG, ERR_FG)
+                return
         else:
-            return   # publish: inativo por enquanto
+            return
         profile = self._LOGIN_PROFILES[kind]()
         self._login_browser_busy = True
         for b in getattr(self, "_login_btns", {}).values():
@@ -2834,17 +3243,23 @@ class App(tk.Tk):
                 )
                 Stealth().apply_stealth_sync(ctx)
                 page = ctx.pages[0] if ctx.pages else ctx.new_page()
+                url = self._LOGIN_URLS.get(kind, "https://www.instagram.com/")
                 try:
-                    page.goto("https://www.instagram.com/",
-                              wait_until="domcontentloaded", timeout=60000)
+                    page.goto(url, wait_until="domcontentloaded", timeout=60000)
                 except Exception:
                     pass
+
+                def _is_logged():
+                    if kind == "chatgpt":
+                        return chatgpt.logged_in(ctx.pages[0]) if ctx.pages else False
+                    return downloader._instagram_logged_in(ctx)
+
                 # Fica de olho ate o usuario FECHAR a janela do navegador
                 while True:
                     try:
                         if not ctx.pages:
                             break
-                        logged = downloader._instagram_logged_in(ctx)
+                        logged = _is_logged()
                         status(("✓ Sessão ativa" if logged else "✗ Sem login")
                                + " — feche a janela do navegador para concluir")
                         ctx.pages[0].wait_for_timeout(1500)
@@ -3092,11 +3507,10 @@ class App(tk.Tk):
 
     def _reset_after_duplicate(self):
         """Reset silencioso apos o usuario confirmar repetida no dialog — sem popup extra."""
-        self.btn_start.config(state="normal")
-        self.btn_paste_clear.config(state="normal")
         self.progress["value"] = 0
         self.lbl_status.config(text="Aguardando...")
         self.clear_log()
+        self._pipeline_finished()   # libera a fila de downloads para o proximo
 
     # ------------------------------------------------------------------
     # Dialog de confirmacao
@@ -3264,8 +3678,9 @@ class App(tk.Tk):
                     fg=TXT_M, font=FONT_B, bg=PANEL,
                 ).pack(pady=20, padx=12)
             else:
+                variant = getattr(inner, "_hist_variant", "full")
                 for entry in page_entries:   # ordem cronologica (mais recentes embaixo)
-                    self._add_history_row(inner, entry, is_today)
+                    self._add_history_row(inner, entry, is_today, variant)
 
     def _delete_history_entry(self, entry: dict):
         entries = _load_history()
@@ -3318,7 +3733,8 @@ class App(tk.Tk):
             ctxt = (it or {}).get("cta", "")
         return ctxt if ctxt and ctxt != "não detectada" else ""
 
-    def _add_history_row(self, parent, entry: dict, is_current: bool = True):
+    def _add_history_row(self, parent, entry: dict, is_current: bool = True,
+                         variant: str = "full"):
         row_outer = tk.Frame(parent, bg=BORDER, padx=1, pady=1)
         row_outer.pack(fill="x", padx=4, pady=2)
         row = tk.Frame(row_outer, bg=PANEL, padx=8, pady=6)
@@ -3423,9 +3839,17 @@ class App(tk.Tk):
         self._btn(url_row, "📁", lambda p=_folder_path: self._open_folder(p),
                   "secondary_sm").pack(side="left", padx=(4, 0))
 
-        # Canto superior direito (Retornar + apagar) — SO no dia atual.
-        # Dias passados sao apenas leitura (arquivados).
-        if is_current:
+        # Botoes do canto superior direito, dependendo da variante do painel.
+        if variant == "cta":
+            # Aba Edicao CARDs Finais: so 'Editar CTA' (sem Retornar/apagar/Reset)
+            topright = tk.Frame(row, bg=PANEL)
+            topright.place(relx=1.0, rely=0.0, anchor="ne")
+            self._btn(
+                topright, "✏ Editar CTA",
+                lambda ent=entry: self._edit_cta_for_entry(ent), "secondary_sm",
+            ).pack(side="left")
+        elif is_current:
+            # Filtro por Link / Entre Contas: Retornar + apagar (so no dia atual)
             topright = tk.Frame(row, bg=PANEL)
             topright.place(relx=1.0, rely=0.0, anchor="ne")
             self._btn(
@@ -4283,6 +4707,13 @@ class App(tk.Tk):
             return
 
         organizer.save_media_to_slot(slot, images)
+        # Legenda capturada no download (se houver) viaja para a pasta de envio
+        cap = (entry.get("meta", {}).get("caption") or "").strip()
+        if cap:
+            try:
+                (slot / "Legenda.txt").write_text(cap, encoding="utf-8")
+            except Exception:
+                pass
         self._record_history(entry.get("url", ""), slot, entry.get("meta", {}),
                              origin={"origin": "link", "from": "queue"})
         waitqueue.remove_from_queue(entry.get("id", ""))
@@ -4324,8 +4755,8 @@ class App(tk.Tk):
         Pede confirmacao antes — o sistema fica ocupado durante o processo."""
         if getattr(self, "_metrics_busy", False):
             return
-        if str(self.btn_start["state"]) == "disabled":
-            self._show_toast("Aguarde o processo atual terminar.", 4000, ERR_BG, ERR_FG)
+        if getattr(self, "_pipeline_busy", False) or getattr(self, "_link_queue", []):
+            self._show_toast("Aguarde a fila de downloads terminar.", 4000, ERR_BG, ERR_FG)
             return
         pairs = [(e.get("id", ""), e.get("url", ""))
                  for e in waitqueue.load_queue() if e.get("url")]
@@ -4389,6 +4820,7 @@ class App(tk.Tk):
                     pass
                 if getattr(self, "_tab_active", "link") == "link":
                     self._reload_queue_panel()
+                self._pipeline_next()   # drena links que empilharam durante as metricas
             self.after(0, fin)
 
     def _apply_queue_meta(self, entry_id: str, meta: dict):
@@ -4730,9 +5162,6 @@ class App(tk.Tk):
         return decision[0] == "save"
 
     def start_pipeline(self):
-        if getattr(self, "_metrics_busy", False):
-            self._show_result_popup(False, "Aguarde a atualização de métricas da fila terminar.")
-            return
         link = self.entry_link.get().strip()
         if not link:
             self._show_result_popup(False, "Cole o link da publicação do Instagram antes de iniciar.")
@@ -4750,19 +5179,80 @@ class App(tk.Tk):
                 dest_col = self._q_dest_ids[idx]
             if dest_col == "__new__":
                 dest_col = None
-        self.btn_start.config(state="disabled")
-        self.btn_paste_clear.config(state="disabled")
+        # Empilha na fila de downloads e libera a barra para o proximo link
+        self._enqueue_pipeline({
+            "link": link, "db_folder": Path(db_folder), "mode": mode,
+            "dest_col": dest_col, "want_caption": bool(self._var_caption.get()),
+        })
+        self.entry_link.delete(0, "end")
+        self.btn_paste_clear.config(text="Colar")
+
+    # ------------------------------------------------------------------
+    # Fila de downloads (empilha links; um comeca assim que o outro termina)
+    # ------------------------------------------------------------------
+
+    def _enqueue_pipeline(self, item: dict):
+        self._link_queue = getattr(self, "_link_queue", [])
+        self._link_queue.append(item)
+        self._update_dl_queue_lbl()
+        self._pipeline_next()
+
+    def _update_dl_queue_lbl(self):
+        n = len(getattr(self, "_link_queue", []))
+        running = getattr(self, "_pipeline_busy", False)
+        if running and n:
+            txt = f"⬇ baixando… {n} na fila"
+        elif running:
+            txt = "⬇ baixando…"
+        elif n:
+            txt = f"{n} na fila de download"
+        else:
+            txt = ""
+        try:
+            self._dl_queue_lbl.config(text=txt)
+        except (tk.TclError, AttributeError):
+            pass
+
+    def _pipeline_next(self):
+        """Dispara o proximo item da fila — respeitando a atualizacao de metricas
+        (que usa o mesmo navegador)."""
+        if getattr(self, "_pipeline_busy", False):
+            return
+        if getattr(self, "_metrics_busy", False):
+            self.after(1000, self._pipeline_next)   # metricas em curso: espera
+            return
+        queue = getattr(self, "_link_queue", [])
+        if not queue:
+            self._update_dl_queue_lbl()
+            return
+        item = queue.pop(0)
+        self._pipeline_busy = True
+        self._pipeline_current = item
+        self._update_dl_queue_lbl()
         self.progress["value"] = 0
         self.lbl_status.config(text=STEPS[0])
         self.clear_log()
-        threading.Thread(
-            target=self._run_pipeline, args=(link, Path(db_folder), mode, dest_col),
-            daemon=True,
-        ).start()
+        self._send_browser_to_back_soon()   # SnapInsta abre o navegador -> ao fundo
+        threading.Thread(target=self._run_pipeline_item, args=(item,), daemon=True).start()
+
+    def _run_pipeline_item(self, item: dict):
+        self._run_pipeline(
+            item["link"], item["db_folder"], item.get("mode", "use"),
+            item.get("dest_col"), item.get("feed_mark"),
+            want_caption=item.get("want_caption", False),
+        )
+
+    def _pipeline_finished(self):
+        """Chamado no fim de cada item (sucesso ou erro) — encadeia o proximo."""
+        self._pipeline_busy = False
+        self._pipeline_current = None
+        self._update_dl_queue_lbl()
+        self._pipeline_next()
 
     def _run_pipeline(self, link: str, db_folder: Path, mode: str = "use",
                       dest_col: "str | None" = None,
-                      feed_mark: "tuple | None" = None):
+                      feed_mark: "tuple | None" = None,
+                      want_caption: bool = False):
         tmp_dir = Path(tempfile.mkdtemp(prefix="instabot_"))
         try:
             self._step(0, "Verificando configuracoes...")
@@ -4793,7 +5283,7 @@ class App(tk.Tk):
             self._step(2, "Baixando midias do snapinsta.to...")
             media_paths, ig_meta = downloader.download_carousel(
                 link, tmp_dir, progress_cb=lambda m: self._log_async(m),
-                login_wait_cb=self._login_wait_cb,
+                login_wait_cb=self._login_wait_cb, want_caption=want_caption,
             )
 
             proceed_label = (
@@ -4867,6 +5357,14 @@ class App(tk.Tk):
 
             self._step(4, "Salvando arquivos na pasta de envio...")
             organizer.save_media_to_slot(slot, media_paths)
+            # Legenda (se o usuario marcou "Baixar com Legenda?")
+            cap = (ig_meta.get("caption") or "").strip() if want_caption else ""
+            if cap:
+                try:
+                    (slot / "Legenda.txt").write_text(cap, encoding="utf-8")
+                    self._log_async("Legenda salva em Legenda.txt.")
+                except Exception:
+                    pass
 
             # Estava na fila e foi usada agora — remove da fila para nao reutilizar depois
             if matched_queue_id:
@@ -4902,29 +5400,39 @@ class App(tk.Tk):
 
     def _done(self, success: bool, msg: str, link: str = "", slot: "Path | None" = None, ig_meta: dict = None):
         def finish():
-            self.btn_start.config(state="normal")
-            self.btn_paste_clear.config(state="normal")
             if success:
-                self.entry_link.delete(0, "end")
-                self.btn_paste_clear.config(text="Colar")
                 if slot:
                     self._record_history(link, slot, ig_meta or {})
+                self._show_result_popup(True, msg)
             else:
                 self.progress["value"] = 0
                 self.lbl_status.config(text="Erro — veja o LOG abaixo")
-            self._show_result_popup(success, msg)
+                self._recover_failed_link(link)
+                self._show_result_popup(False, msg)
+            self._pipeline_finished()
 
         self.after(0, finish)
 
     def _done_queue(self):
         def finish():
-            self.btn_start.config(state="normal")
-            self.btn_paste_clear.config(state="normal")
-            self.entry_link.delete(0, "end")
-            self.btn_paste_clear.config(text="Colar")
             self._show_result_popup(True, "Publicação adicionada à fila de espera!")
+            self._pipeline_finished()
 
         self.after(0, finish)
+
+    def _recover_failed_link(self, link: str):
+        """Erro de download: o link nao pode se perder. Volta pra barra se ela
+        estiver vazia; senao, mostra num toast pra recuperar manualmente."""
+        if not link:
+            return
+        try:
+            if not self.entry_link.get().strip():
+                self.entry_link.insert(0, link)
+                self.btn_paste_clear.config(text="Limpar")
+            else:
+                self._show_toast(f"Link falhou — recupere: {link}", 8000, ERR_BG, ERR_FG)
+        except tk.TclError:
+            pass
 
     def _on_queued(self):
         # Publicacao nova entra nos Salvos — volta pra visao principal p/ aparecer

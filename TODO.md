@@ -33,6 +33,39 @@ _Atualizado em: 16/07/2026_
 - [ ] Comparações visuais (antes/depois, mentalidade fraca × forte)
 - [ ] _(adicionar mais tipos e definir a prioridade de cada um)_
 
+## 🤖 Módulo "Edição CARDs Finais" — IMPLEMENTADO (19/07), refinar automação
+
+> ✅ Feito: aba nova + storage de perfis (cardscripts.py) + login ChatGPT nas Configurações
+> + "Lista de Publicações do Dia" read-only com "Editar CTA" + chatgpt.py (automação
+> best-effort). 🧪 A automação do chatgpt.com precisa de refino com LOGs reais (DOM muda).
+> Pendências finas do módulo:
+- [ ] Testar a automação real do chatgpt.com e ajustar seletores (ESTRATEGIAS.md tem a tabela)
+- [ ] Confirmar o fluxo card→legenda com legenda-exemplo (hoje é um prompt único por vez)
+- [ ] Miniatura da imagem gerada direto na área de resposta (hoje: botão abre a pasta/arquivo)
+
+### (design original, mantido para referência)
+
+**Arquitetura decidida:**
+- Nova aba **"Edição CARDs Finais"**. Automação do **chatgpt.com via navegador** (perfil
+  próprio de Chrome, como o Instagram) — SEM pagar API. Login: botão nas Configurações
+  ("Logins" ganha um 4º: ChatGPT) que abre o navegador para logar/deslogar (mesmo padrão).
+- **Perfis de script reutilizáveis** (`data/card_scripts.json`): cada perfil = {nome, título
+  de capa (livre, ex.: "CTA Comentar", "Cliente Valter", "Troca de Gatilho", "Edição
+  Completa"), texto do script (caixa média), imagem de exemplo}. Salvar → vira botão
+  (nome + miniatura). CRUD completo (criar/editar/renomear/apagar). Testável isolado.
+- **Requisição**: caixa de texto do script + anexar até **30 imagens** de contexto/corte.
+  Gera **card final E** depois a **legenda** (com base numa legenda-exemplo fornecida).
+  2 cards finais fixos como exemplo-base default (editáveis).
+- **Resposta**: área que mostra o texto/reposta do chat + **botão para baixar a imagem
+  gerada** (salvar em `data/cards_gerados/` com data no nome).
+
+**Ordem de implementação sugerida (fatiar p/ testar):**
+1. Storage + UI dos perfis de script (CRUD, botões com miniatura) — 100% testável isolado
+2. Login ChatGPT nas Configurações + navegador próprio
+3. Envio do script + imagens ao chatgpt.com e leitura da resposta (a parte frágil)
+4. Download da imagem gerada
+- Registrar as estratégias de seletor no ESTRATEGIAS.md (chatgpt.com muda muito)
+
 ## 🎨 Produção de conteúdo
 
 - [ ] Criar conta no **GROK** e avaliar custo — gerar imagens de animações/desenhos e
@@ -99,6 +132,36 @@ _Atualizado em: 16/07/2026_
   `relatorio_geral_VALTER_...txt`) — o usuário hoje renomeia na mão
 - [ ] **Revisar CTAs vazias/não detectadas** nas disponíveis (ex.: Dia22_13_06_26_V\6,
   Dia2_24_05_26_V\3, Dia9_31_05_26_V\1) — reprocessar OCR ou melhorar classificação
+
+## 📅 Postagem/Programação — EM ANDAMENTO (motor pronto 19/07)
+
+> ✅ Feito: `postplan.py` (motor de horários + storage, TESTADO) — 8 bases × 5 variantes
+> (−10/−5/0/+5/+10), variância 0/20/30/40, sorteio aleatório sem 3 iguais seguidas,
+> imediata vs agendada, contas @ salvas, due_posts/mark. `poster.py` (esqueleto:
+> perfil próprio `poster_profile`, ordem das imagens, Legenda.txt, marcações) com o
+> modal do Instagram STUBBED (`IMPLEMENTED=False`, nunca posta de verdade ainda).
+> Login "Instagram — Postagem/Programação" ATIVADO nas Configurações (conta separada).
+
+Pendências (print-INDEPENDENTES — dá pra fazer sem os prints):
+- [ ] **Aba "Postagem/Programações"**: a Lista de Publicações do Dia como tela principal,
+  cada cartão com: horário-base (dropdown 00–21h), imediata×agendada, contas @ (multi,
+  salvas), música (definir depois manualmente). Linha de topo com variância 0/20/30/40.
+  Reordenar por arraste (mesmo mecanismo da Fila/Coleções). Botão **PROGRAMAR** abaixo do
+  último card → sorteia horários (postplan.program_day), fixa balão "Publicação Programada".
+- [ ] **Vigia 24h** (relógio da máquina): `_start_post_watch` checa `postplan.due_posts()`
+  e dispara o poster quando chega a hora (roda com o app aberto — avisar o usuário).
+- [ ] LOGs publicação por publicação.
+
+⚠️ VIRADA DE ESTRATÉGIA (19/07): a postagem pelo NAVEGADOR (Instagram web no Windows)
+NÃO serve — a web só permite "Compartilhar" na hora, **sem aplicar música e sem
+programar horário**. Caminho futuro decidido pelo usuário: **emulador Android (AVD)**
+rodando o app do Instagram, onde dá para escolher música em alta e a data/hora de
+publicação. O `poster.py` (browser) fica como referência mas provavelmente será
+substituído por automação do emulador. `postplan.py` (motor de horários) e a futura
+aba/vigia continuam VÁLIDOS — muda só a "mão" que posta.
+- [ ] Reavaliar poster: automação via emulador Android (AVD) em vez de navegador
+  (escolher música em alta + programar data/hora nativamente no app do IG).
+- [ ] Aba "Postagem/Programações" + vigia 24h (print-independente, ainda vale).
 
 ## 🖥 App
 

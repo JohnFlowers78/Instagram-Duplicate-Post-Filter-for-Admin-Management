@@ -142,6 +142,18 @@ _Atualizado em: 16/07/2026_
 > modal do Instagram STUBBED (`IMPLEMENTED=False`, nunca posta de verdade ainda).
 > Login "Instagram — Postagem/Programação" ATIVADO nas Configurações (conta separada).
 
+### 🟢 ATUALIZAÇÃO 22/07 — ambiente Android pronto + FLUXO MAPEADO
+- ✅ **Emulador AVD instalado** (JDK/SDK/adb/emulador/AVD 'postador'/Android14+PlayStore, sem admin em %LOCALAPPDATA%\Android). `androidenv.py` vincula (start/wait_boot/push_images/detecta IG).
+- ✅ **uiautomator2** instalado e conectando (automação por identidade de elemento — celular físico Galaxy S21 Ultra também detectado via ADB).
+- ✅ **FLUXO DE POSTAGEM/AGENDAMENTO 100% MAPEADO** (contas pequenas) em **POSTFLOW_INSTAGRAM.md** — os 8 passos com todos os seletores (Criar→Post→seleção na ordem via data→Taxa/Retrato→Música em alta ↗ (IMAGE RECOGNITION)→Avançar→Legenda→Colaboradores→Programar toggle→data/hora→Concluir→Programar).
+- Decisões: **3 estratégias** que o usuário escolhe na aba (API Graph="Método Seguro" padrão; Emulador e Celular="Risco Existente"→uiautomator2). Bot põe 1ª música em alta (↗). Ordem das imagens via timestamps no adb push. Setup: fazer 1 post MANUAL antes (limpar permissões).
+
+Pendências desta feature:
+- [ ] **Mapear o estilo RELÓGIO** de data/hora (contas grandes 200k/2M — logar conta grande no emulador) + re-verificar tudo no **Galaxy físico**
+- [ ] **Configurar a API Graph da Meta** (o "Método Seguro" — publica sem música/sem agendar-nativo; via nosso vigia 24h)
+- [ ] **Construir o `poster.py`** via uiautomator2 a partir do POSTFLOW_INSTAGRAM.md (roda; detectar roda×relógio; image-recog da ↗)
+- [ ] Seletor das 3 estratégias na aba Postagem + fallback "continuar com emulador" se celular desconectado
+
 Pendências (print-INDEPENDENTES — dá pra fazer sem os prints):
 - [ ] **Aba "Postagem/Programações"**: a Lista de Publicações do Dia como tela principal,
   cada cartão com: horário-base (dropdown 00–21h), imediata×agendada, contas @ (multi,

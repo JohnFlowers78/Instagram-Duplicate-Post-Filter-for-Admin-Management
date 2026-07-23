@@ -22,8 +22,17 @@ Fluxo da API (carrossel):
   4) publica (POST /media_publish, creation_id)
 """
 
+import functools
+import http.server
 import json
+import re
+import shutil
+import socketserver
+import subprocess
+import tempfile
+import threading
 import time
+from pathlib import Path
 
 import requests
 
@@ -94,14 +103,89 @@ def check_token(cfg: dict = None) -> dict:
         return {"ok": False, "error": str(exc)}
 
 
-# --- hospedagem das imagens (PLUGÁVEL) --------------------------------------
-def host_images(local_paths) -> list:
-    """Transforma caminhos LOCAIS em URLs PÚBLICAS (https) — exigência da API Graph.
-    A implementação depende da infra escolhida pelo usuário (servidor/bucket/host
-    temporário). Enquanto não definida, levanta erro claro."""
-    raise NotImplementedError(
-        "host_images() não configurado: a API Graph exige image_url público. "
-        "Defina onde hospedar as imagens (servidor próprio, bucket S3/GCS, etc.).")
+# --- hospedagem por TÚNEL LOCAL TEMPORÁRIO (cloudflared) --------------------
+# As imagens NÃO ficam em terceiros: sobe um mini-servidor local + um túnel efêmero
+# (cloudflared quick tunnel) só durante a publicação; ao terminar, tudo é derrubado.
+def cloudflared_path() -> str:
+    """Acha o cloudflared: no PATH, ou baixado em %LOCALAPPDATA%\\cloudflared."""
+    exe = shutil.which("cloudflared")
+    if exe:
+        return exe
+    local = Path(DATA_DIR).parent / "cloudflared" / "cloudflared.exe"
+    return str(local) if local.exists() else "cloudflared"
+
+
+def cloudflared_installed() -> bool:
+    return shutil.which("cloudflared") is not None or \
+        (Path(DATA_DIR).parent / "cloudflared" / "cloudflared.exe").exists()
+
+
+class TunnelHost:
+    """Serve as imagens do carrossel por um túnel público efêmero (trycloudflare).
+    Uso: host.start(paths) → lista de URLs https; host.stop() no fim (sempre)."""
+
+    _URL_RE = re.compile(r"https://[a-z0-9-]+\.trycloudflare\.com")
+
+    def __init__(self, cloudflared: str = None):
+        self.cloudflared = cloudflared or cloudflared_path()
+        self._httpd = None
+        self._thread = None
+        self._proc = None
+        self._tmp = None
+
+    def start(self, local_paths, timeout_s: int = 40, report=None) -> list:
+        paths = [Path(p) for p in local_paths]
+        self._tmp = Path(tempfile.mkdtemp(prefix="graphpost_"))
+        names = []
+        for i, p in enumerate(paths, 1):
+            name = f"{i:02d}{p.suffix.lower()}"      # 01.jpg, 02.jpg… (ordem garantida)
+            shutil.copy(p, self._tmp / name)
+            names.append(name)
+        # mini-servidor local numa porta livre
+        handler = functools.partial(http.server.SimpleHTTPRequestHandler,
+                                    directory=str(self._tmp))
+        self._httpd = socketserver.TCPServer(("127.0.0.1", 0), handler)
+        port = self._httpd.server_address[1]
+        self._thread = threading.Thread(target=self._httpd.serve_forever, daemon=True)
+        self._thread.start()
+        # túnel efêmero
+        if report:
+            report("• abrindo túnel cloudflared…")
+        self._proc = subprocess.Popen(
+            [self.cloudflared, "tunnel", "--url", f"http://127.0.0.1:{port}"],
+            stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True,
+            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+        public = None
+        deadline = time.monotonic() + timeout_s
+        while time.monotonic() < deadline:
+            line = self._proc.stdout.readline()
+            if not line:
+                if self._proc.poll() is not None:
+                    break
+                continue
+            m = self._URL_RE.search(line)
+            if m:
+                public = m.group(0)
+                break
+        if not public:
+            self.stop()
+            raise GraphError("não consegui abrir o túnel cloudflared (URL não apareceu)")
+        if report:
+            report(f"• túnel ativo: {public}")
+        return [f"{public}/{n}" for n in names]
+
+    def stop(self):
+        for closer in (
+            lambda: self._proc and self._proc.terminate(),
+            lambda: self._httpd and self._httpd.shutdown(),
+            lambda: self._httpd and self._httpd.server_close(),
+            lambda: self._tmp and shutil.rmtree(self._tmp, ignore_errors=True),
+        ):
+            try:
+                closer()
+            except Exception:
+                pass
+        self._proc = self._httpd = self._thread = self._tmp = None
 
 
 # --- containers / publicação -----------------------------------------------
@@ -193,7 +277,16 @@ def publish_carousel(image_urls, caption="", cfg=None, report=None) -> dict:
 
 
 def publish_local_carousel(local_paths, caption="", cfg=None, report=None) -> dict:
-    """Conveniência: hospeda as imagens locais (host_images) e publica.
-    Só funciona quando host_images() estiver configurado."""
-    urls = host_images(local_paths)
-    return publish_carousel(urls, caption, cfg=cfg, report=report)
+    """Publica imagens LOCAIS: sobe um túnel efêmero (cloudflared), publica via API e
+    derruba o túnel no fim (as imagens não ficam hospedadas em terceiros)."""
+    if not cloudflared_installed():
+        return {"ok": False, "media_id": "", "error":
+                "cloudflared não instalado (necessário para o túnel de imagens)"}
+    host = TunnelHost()
+    try:
+        urls = host.start(local_paths, report=report)
+        return publish_carousel(urls, caption, cfg=cfg, report=report)
+    except Exception as exc:
+        return {"ok": False, "media_id": "", "error": str(exc)}
+    finally:
+        host.stop()

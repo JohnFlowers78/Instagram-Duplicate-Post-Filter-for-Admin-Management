@@ -170,3 +170,15 @@ Toda análise "não repetida" loga o candidato mais próximo:
 
 > **Ao mudar/adicionar uma estratégia:** registrar aqui, rodar uma coleta e conferir o
 > **Resumo do LOG** (vistas · aprovadas · recusas por motivo) antes de marcar ✅ validada.
+
+## 🛡️ Uso manual mascarando a automação (harm-reduction) — 22/07
+- Atalhos criados: **Emulador Postador** na Área de Trabalho e no Menu Iniciar
+  (apontam p/ `Sdk\emulator\emulator.exe -avd postador -gpu auto -no-boot-anim`).
+  Barra de tarefas = passo manual (Win11 bloqueia fixar por script).
+- Postar MANUALMENTE pelo emulador = atividade humana real (IG vê um Android normal)
+  → risco baixo, como postar pelo celular (desde que volume normal).
+- Misturar uso humano (posts manuais, rolar, curtir, horários variados) no MESMO
+  emulador/conta MASCARA a automação: quebra o padrão robótico e mantém o device
+  fingerprint consistente (os 2 maiores sinais de detecção). Fins de semana = bom "ruído humano".
+- Honesto: reduz, não zera o risco. `uiautomator2` = "Risco Existente"; API Graph = "Método Seguro".
+  `postplan` já embaralha horários (variância) — reforça o disfarce.

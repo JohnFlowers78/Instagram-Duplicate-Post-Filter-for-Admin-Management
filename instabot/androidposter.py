@@ -124,9 +124,9 @@ class IGDriver:
             return False
         row.click()
         self.log(f"• toquei na conta @{target}")
-        time.sleep(2.0)
+        time.sleep(2.5)   # a troca cai no FEED da nova conta (não no perfil)
         if confirm:
-            self.d(resourceId=_rid("action_bar_title")).wait(timeout=self.timeout)
+            self.go_to_profile()   # volta ao perfil p/ ler o @ ativo
             now = self.active_account().lstrip("@")
             if now == target:
                 self.log(f"✓ conta trocada para @{target}")

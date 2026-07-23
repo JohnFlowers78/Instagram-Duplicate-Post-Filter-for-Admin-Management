@@ -155,15 +155,46 @@ aparecem pro bot e travam o fluxo. Avisar isso no botão de Login/Setup do app.
   OU tentar set_text. Distinguir os 3 por índice/posição. FISICO tem picker diferente
   (relógio circular) — RE-VERIFICAR e mapear à parte.
 
-### TELA 7-ALT — Overlay data/hora estilo RELÓGIO (contas GRANDES: 200k/2M) — a mapear no emulador
-- Variável que muda o estilo: provavelmente o Nº DE SEGUIDORES da conta.
-- Estrutura (dos prints): a folha "Programar post" tem 2 LINHAS: **"Data"** e **"Horário"**,
-  cada uma abre um diálogo separado (Material):
-  - Data → calendário (grade de dias, mês, > ) + CANCELAR / OK
-  - Horário → relógio de HORAS (00–23 em círculo) → ao escolher, abre relógio de MINUTOS
-    (00,05,...55 em círculo) → CANCELAR / OK
-- poster.py deve DETECTAR qual estilo apareceu (numberpicker_input? então roda; senão relógio)
-  e agir conforme. RE-VERIFICAR logando conta grande no emulador (capturar os seletores).
+### TELA 7-ALT — Overlay data/hora estilo RELÓGIO ✅ CAPTURADO (emulador)
+**O QUE ALTERNA O ESTILO (descoberto):** NÃO é só o aparelho nem só os seguidores.
+- Contas PEQUENAS (ex.: @mentalityfilter, 0 seguidores): SEMPRE estilo RODA.
+- Contas GRANDES (196k, 2M): **ALTERNAM (A/B) entre RODA e RELÓGIO** — o MESMO
+  aparelho/conta ora mostra um, ora outro. Logo o bot PRECISA dos DOIS e deve
+  DETECTAR em runtime (se existe `numberpicker_input` → RODA; se existe
+  `com.instagram.android:id/title_text_view`='Programar post' com linhas Data/Horário → RELÓGIO).
+
+**Overlay "Programar post" (folha IG):**
+- Título: `id=title_text_view` text='Programar post'; subtítulo de fuso `id=subtitle_text_view`
+- **Linha DATA:** `Button` `descriptionStartsWith='Data,'` (desc completo ex.: 'Data, qua., jul. 22, 2026')
+  → dentro: `id=igds_textcell_title`='Data', `id=igds_textcell_subtitle`=data atual, `igds_textcell_chevron`
+- **Linha HORÁRIO:** `Button` `descriptionStartsWith='Horário,'` (ex.: 'Horário, 10:35 PM')
+  → `id=igds_textcell_title`='Horário', `id=igds_textcell_subtitle`=hora atual
+- **CONCLUIR (fecha o overlay e ativa a programação):** `id=bb_primary_action_container` desc='Concluir'
+
+**Diálogo DATA = Material DatePicker (ids no namespace `android:`):**
+- `id=datePicker`; cabeçalho `id=date_picker_header_year`(ex.'2026') + `id=date_picker_header_date`('Qua., 22 de jul.')
+- **Dias:** `View` clicável com `text`=número do dia E **`content-desc`='DD <mês> AAAA'** (ex.: desc='25 julho 2026')
+  → bot seleciona por content-desc (mês por extenso, minúsculo, em pt).
+- **Próximo mês:** `id=next` (desc='Próximo mês'); mês anterior fica OCULTO p/ datas passadas.
+- **CANCELAR:** `id=button2` · **OK:** `id=button1`  (namespace `android:id/...`)
+- ESTRATÉGIA: se o mês alvo != mês exibido, tocar `next` N vezes; depois tocar o `View`
+  cujo content-desc == "DD <mês> AAAA"; OK.
+
+**Diálogo HORÁRIO = Material TimePicker (24h) — USAR O MODO TECLADO (robusto):**
+- Modo dial (padrão): `id=timePicker`; `id=hours`(ex.'22') `id=separator`(':') `id=minutes`('35');
+  `id=radial_picker` com números = `content-desc` '0'..'23'. (frágil: exige acertar ângulo)
+- **`id=toggle_mode`** (desc='Alterne para o modo de entrada') → vira MODO TECLADO ↓↓
+- **MODO TECLADO (o bot usa este):**
+  - `id=input_header`='Definir horário'; `id=input_hour` (EditText, HH 24h) ; `id=input_minute` (EditText, MM)
+  - labels `id=label_hour`='hora', `id=label_minute`='minuto'; volta ao dial por `id=toggle_mode`
+  - **CANCELAR:** `id=button2` · **OK:** `id=button1`
+- ESTRATÉGIA: tocar linha Horário → tocar `toggle_mode` → set_text `input_hour`=HH, `input_minute`=MM (24h) → OK.
+
+**FLUXO do bot no estilo RELÓGIO:**
+1. tocar linha DATA (`descriptionStartsWith='Data,'`) → (next N vezes p/ mês) → `View` desc="DD mês AAAA" → OK (`android:id/button1`)
+2. tocar linha HORÁRIO (`descriptionStartsWith='Horário,'`) → `toggle_mode` → set input_hour/input_minute → OK
+3. `bb_primary_action_container`(Concluir) → fecha overlay, chave Programar ativa
+4. `share_footer_button` (vira 'Programar')
 
 ## TELA 8 — Submit final ✅
 - **Botão final: `id=share_footer_button`** — MESMO componente; desc/text muda:
@@ -198,7 +229,9 @@ ORDEM do bot:
    (roda: 3x `numberpicker_input` por índice; OU relógio nas contas grandes) → `bb_primary_action_container`(Concluir)
 8. Submit: `share_footer_button` (vira 'Programar')
 
-FALTA: mapear estilo RELÓGIO (conta grande) + re-verificar no FÍSICO.
+✅ Estilo RODA e estilo RELÓGIO AMBOS mapeados (ver TELA 7 e TELA 7-ALT). O bot
+detecta em runtime qual apareceu (contas grandes alternam A/B). Re-verificar no
+FÍSICO fica como conferência final (mesmos componentes Material → deve bater).
 
 ## TELA 6 — Configurações avançadas → Programar publicação (rolar p/ achar)
 _(a capturar)_

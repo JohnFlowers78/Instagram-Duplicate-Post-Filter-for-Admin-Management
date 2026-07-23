@@ -160,8 +160,12 @@ _Atualizado em: 16/07/2026_
   **TESTADO no emulador**: abre Feed → Perfil → lê @mentedespierta.es → abre compositor de Post (sem publicar). ✅
 
 Pendências desta feature:
-- [ ] **Continuar o `poster.py`/androidposter.py**: seleção de imagens NA ORDEM (timestamps no push + ler "criação em HH:MM" do desc), Taxa=Retrato→Concluir, Avançar, legenda, colaboradores, Mais opções→toggle Programar, setar RODA (3× numberpicker por índice), Compartilhar→Programar. Detectar roda×relógio.
-- [ ] (defensivo) **Mapear o estilo RELÓGIO** no **Galaxy físico** (ou conta 2M) — reaproveitável no emulador.
+- ✅ **Estilo RELÓGIO CAPTURADO no emulador** (contas grandes ALTERNAM A/B roda×relógio no
+  mesmo aparelho/conta!). POSTFLOW TELA 7-ALT: overlay 'Programar post' (linhas Data/Horário) →
+  DatePicker (dias por content-desc 'DD mês AAAA', `next` p/ mês, OK=`android:id/button1`) →
+  TimePicker MODO TECLADO (`toggle_mode`→`input_hour`/`input_minute` 24h→OK). Bot DETECTA o estilo em runtime.
+- [ ] **Continuar o `poster.py`/androidposter.py**: seleção de imagens NA ORDEM (timestamps no push + ler "criação em HH:MM" do desc), Taxa=Retrato→Concluir, Avançar, legenda, colaboradores, Mais opções→toggle Programar, setar data/hora (RODA=3× numberpicker OU RELÓGIO=Data/Horário), Compartilhar→Programar.
+- [ ] (conferência) re-verificar o RELÓGIO no **Galaxy físico** (mesmos componentes Material → deve bater).
 - [ ] **Configurar a API Graph da Meta** (o "Método Seguro" — publica sem música/sem agendar-nativo; via nosso vigia 24h)
 - [ ] Seletor das 3 estratégias na aba Postagem + fallback "continuar com emulador" se celular desconectado
 - [ ] (autonomia) `androidenv` ciente de SERIAL (2 aparelhos ligados quebram adb "solto") + helper open_instagram; ligar navtest ao botão de teste da aba

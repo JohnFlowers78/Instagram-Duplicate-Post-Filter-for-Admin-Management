@@ -35,7 +35,18 @@ try:
 except Exception:            # pragma: no cover
     androidenv = None
 
+try:
+    import numpy as _np
+    _HAS_NP = True
+except Exception:            # pragma: no cover
+    _np = None
+    _HAS_NP = False
+
 PKG = "com.instagram.android"
+# molde (46x46, cinza) da flecha ↗ "em alta" — a flecha NÃO é elemento (drawableStart
+# no artist_name); detectamos por casamento de template. Aparelhos 1080x2400.
+ARROW_TEMPLATE = Path(__file__).resolve().parent / "assets" / "trending_arrow.png"
+ARROW_NCC_MIN = 0.7
 CAROUSEL_REMOTE = "/sdcard/Pictures/postador"   # álbum dedicado do bot
 # ATENÇÃO: o NumberPicker da "roda" é widget do FRAMEWORK Android (namespace
 # android:), NÃO do pacote do Instagram — usar o prefixo errado quebra a detecção.
@@ -282,6 +293,85 @@ class IGDriver:
             time.sleep(0.5)
         self.log(f"• {n} imagens tocadas na ordem (carrossel 1..{n})")
         return True
+
+    # ---- BLOCO 2a: MÚSICA (1ª "em alta" da aba 'Para você') ----------------
+    def _music_rows(self):
+        """Faixas visíveis (em ordem): [(track_rect, artist_rect), ...]."""
+        root = ET.fromstring(self.d.dump_hierarchy())
+        tracks, artists = [], []
+        for n in root.iter("node"):
+            rid = n.attrib.get("resource-id", "")
+            r = _bounds_rect(n.attrib.get("bounds", ""))
+            if not r:
+                continue
+            if rid.endswith("/track_container"):
+                tracks.append(r)
+            elif rid.endswith("/artist_name"):
+                artists.append(r)
+        out = []
+        for t in tracks:
+            inside = [a for a in artists if t[1] <= a[1] <= t[3]]
+            if inside:
+                out.append((t, inside[0]))
+        return out
+
+    def _first_trending_track(self):
+        """Índice da 1ª faixa com a flecha ↗ (template match). None se nenhuma."""
+        rows = self._music_rows()
+        if not rows:
+            return None, rows
+        if not (_HAS_NP and ARROW_TEMPLATE.exists()):
+            return 0, rows                      # sem numpy/molde → 1ª faixa
+        from PIL import Image
+        tmpl = _np.asarray(Image.open(ARROW_TEMPLATE).convert("L"), dtype=_np.float32)
+        th, tw = tmpl.shape
+        b = tmpl - tmpl.mean()
+        bden = _np.sqrt((b * b).sum())
+        A = _np.asarray(self.d.screenshot().convert("L"), dtype=_np.float32)
+        for i, (_t, ar) in enumerate(rows):
+            x1, y1 = ar[0], ar[1]
+            p = A[y1:y1 + th, x1:x1 + tw]
+            if p.shape != tmpl.shape:
+                continue
+            a = p - p.mean()
+            aden = _np.sqrt((a * a).sum())
+            if aden < 1e-6 or bden < 1e-6:
+                continue
+            if float((a * b).sum() / (aden * bden)) >= ARROW_NCC_MIN:
+                return i, rows
+        return None, rows
+
+    def set_music(self, max_scrolls: int = 2) -> bool:
+        """Define a 1ª música 'em alta' (com flecha ↗) da aba 'Para você'.
+        Na tela de EDIÇÃO, antes do 'Taxa'."""
+        if not self._wait_click("aba Áudio", text="Áudio"):
+            return False
+        time.sleep(2.0)
+        pv = self.d(text="Para você")
+        if pv.exists:
+            pv.click()
+            time.sleep(1.2)
+        idx, rows = None, []
+        for _ in range(max_scrolls + 1):
+            idx, rows = self._first_trending_track()
+            if idx is not None or not rows:
+                break
+            self.d.swipe_ext("up", 0.5)          # rola a lista e tenta de novo
+            time.sleep(1.0)
+        if not rows:
+            self.log("⚠ lista de música vazia")
+            return False
+        if idx is None:
+            self.log("⚠ flecha ↗ não detectada — usando a 1ª faixa")
+            rows = self._music_rows()
+            idx = 0
+        t = rows[idx][0]
+        self.d.click((t[0] + t[2]) // 2, (t[1] + t[3]) // 2)
+        self.log(f"• música: faixa 'em alta' selecionada (índice {idx})")
+        time.sleep(2.0)
+        ok = self._wait_click("confirmar música", resourceId=_rid("select_button_tap_target"))
+        time.sleep(1.5)
+        return ok
 
     # ---- BLOCO 2: edição (Taxa=Retrato) -----------------------------------
     def advance_selection(self) -> bool:
@@ -569,7 +659,7 @@ class IGDriver:
 
 # --- orquestração do POST completo -----------------------------------------
 def post_flow(serial, account, image_paths, caption="", collaborators=None,
-              when=None, publish=False, report=None) -> dict:
+              when=None, publish=False, add_music=True, report=None) -> dict:
     """Fluxo completo de postagem/agendamento. publish=False PARA antes do botão
     final (Programar/Compartilhar) — modo seguro de teste. when=datetime (agendar)
     ou None (imediato)."""
@@ -585,6 +675,8 @@ def post_flow(serial, account, image_paths, caption="", collaborators=None,
         r["stage"] = "criar";      drv.open_create_post(); time.sleep(2)
         r["stage"] = "selecionar"; drv.select_carousel(len(image_paths))
         r["stage"] = "avancar1";   drv.advance_selection(); time.sleep(1.5)
+        if add_music:
+            r["stage"] = "musica"; drv.set_music(); time.sleep(1)
         r["stage"] = "taxa";       drv.set_aspect_portrait(); time.sleep(1)
         r["stage"] = "avancar2";   drv.advance_edit(); time.sleep(2)
         r["stage"] = "legenda";    drv.set_caption(caption)

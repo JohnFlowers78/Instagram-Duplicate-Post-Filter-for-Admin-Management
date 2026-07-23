@@ -188,6 +188,10 @@ Pendências desta feature:
   - A/B é POR CONTA e ESTÁVEL, mas o bot SEMPRE detecta em runtime (independe de aparelho/conta).
   Hardening: switch_account tenta 2x; set_datetime_relogio espera input_hour/minute (timing).
 - ✅ **Trava de auto-girar** (retrato) — uiautomator2 reativava a rotação; lock_portrait no open_app/finally.
+- ✅ **MÚSICA implementada e testada** (DECISÃO INVERTIDA: bot AGORA define música). set_music:
+  aba Áudio → 'Para você' → detecta 1ª faixa com flecha ↗ (template match NCC≥0.7, molde em
+  assets/trending_arrow.png, sem OpenCV, usa numpy) → toca → confirma na → (select_button_tap_target).
+  Entra ANTES do Taxa. Testado no emulador (Tue Jul 28 9:30, roda+música). Usuário troca depois se quiser.
 - [ ] **Habilitar publish=True** (submit) — ÚNICO teste que falta: agendar de verdade 1 post
   na @mentalityfilter (conta de teste) pra confirmar que aparece em 'Conteúdo Programado'. PEDIR OK ao usuário.
 - [ ] (conferência) re-verificar o RELÓGIO no **Galaxy físico** (mesmos componentes Material → deve bater).

@@ -77,7 +77,9 @@ publicação MANUAL antes de usar o bot, pra limpar essas permissões — senão
 aparecem pro bot e travam o fluxo. Avisar isso no botão de Login/Setup do app.
 
 ## TELA 3 — Edição (tools: Áudio/Texto/Sobreposição/Filtros/Editar/Taxa)
-- Pílula de áudio sugerido: `id=audio_pill_empty_background` → **BOT PULA** (música manual depois)
+- Pílula de áudio sugerido: `id=audio_pill_empty_background`. **NOVA DECISÃO: o BOT DEFINE
+  música** (1ª "em alta" com flecha ↗ da aba 'Para você') via a aba **'Áudio'**, ANTES do 'Taxa'.
+  Ver "MÚSICA (set_music)" abaixo. (Usuário troca depois, se quiser, em Conteúdo Programado.)
 - Tabs (sem id, achar por text/desc): 'Áudio', 'Texto', 'Sobreposição', 'Filtros', 'Editar', **'Taxa'**
 - **Taxa (proporção):** elemento text/desc='Taxa' → o bot toca e escolhe **"RETRATO"** (em TODOS os casos)
 - Miniaturas do carrossel: `id=thumbnail_image` (desc='Foto selecionada')
@@ -105,17 +107,21 @@ aparecem pro bot e travam o fluxo. Avisar isso no botão de Login/Setup do app.
   título `id=song_title`, artista `id=artist_name`; salvar `desc="Salvar <titulo>..."`
 - _(a capturar: a tela que abre APÓS escolher a faixa — trecho/clip, e como confirma p/ carrossel)_
 
-### ⚠️ FLECHA "EM ALTA" (↗) NÃO É ELEMENTO — precisa de IMAGE RECOGNITION
-- Dump profundo confirmou: track_container → album_art + song_title + artist_name.
-  A flecha ↗ NÃO tem nó/crachá — é ícone puramente VISUAL (compound drawable/canvas).
-- Usuário QUER: 1ª faixa COM flecha na aba "Para você" (rolar até achar). NÃO quer a aba "Em alta".
-- PLANO: como cada `track_container` tem `bounds` conhecidos, o bot tira screenshot,
-  recorta cada linha e detecta o ícone da flecha (template match / pixel) → seleciona
-  a 1ª que tiver. É a parte MAIS FRÁGIL (re-capturar o template se o ícone mudar).
-- ALTERNATIVA robusta (rejeitada pelo usuário, mas guardada): aba "Em alta" → 1ª faixa
-  `track_container` (100% por seletor, sem imagem).
-- FALTA do usuário: posição/cor/tamanho da flecha na linha (pro template). ✅ RESOLVIDO
-  (setinha ↗ cinza no início da 2ª linha/artista; template do screenshot ig_music.png).
+### ✅ MÚSICA (set_music) — RESOLVIDO E TESTADO (template match, sem OpenCV)
+- Cada `track_container`: capa (esq., baixa res) + 2 linhas → [1] `song_title` (nome),
+  [2] `artist_name` com a **flecha ↗ NO INÍCIO** (antes do artista). A flecha é
+  `drawableStart` cinza — **NÃO é elemento** (não sai no dump). NEM toda faixa tem flecha.
+- **DETECÇÃO (implementada):** molde 46×46 cinza em `instabot/assets/trending_arrow.png`.
+  Pra cada faixa, recorta a região `[artist_x1 : +46, artist_y1 : +46]` da screenshot
+  (cinza) e calcula NCC com o molde. **NCC ≥ 0.7 = tem flecha.** (Medido: faixas com
+  flecha ~0.99; sem flecha ~0.25 → separação limpa.) Escolhe a 1ª com flecha; rola se
+  nenhuma visível; fallback = 1ª faixa. Aparelhos 1080×2400 (molde alinha nos dois).
+- **PASSOS do bot (`set_music`):** aba 'Áudio' → garante aba 'Para você' → detecta 1ª com
+  flecha → toca no `track_container` → sobe o BALÃO de confirmação (▶ ouvir + → seguir) →
+  toca **`id=select_button_tap_target`** (a →, canto inf. direito, dentro do balão colorido).
+  A → **só FECHA e DEFINE a música** (NÃO vai pro trim; pra ajustar trecho seria abrir
+  'Áudio' de novo — o bot não faz). Volta à edição com a pílula da música no topo.
+- Requer `numpy` (degrada p/ 1ª faixa se faltar). ✅ testado emulador (roda+música, Tue Jul 28 9:30).
 
 ### TELA 3d — Pop-up de confirmação da música (balão vinho embaixo)
 - Ao tocar a faixa, sobe um balão embaixo: capa + título/artista + ▶ + →

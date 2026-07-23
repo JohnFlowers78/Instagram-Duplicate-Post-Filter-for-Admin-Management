@@ -1,6 +1,8 @@
 Pillow
 imagehash
+numpy
 playwright
 playwright-stealth
 pytesseract
 requests
+uiautomator2

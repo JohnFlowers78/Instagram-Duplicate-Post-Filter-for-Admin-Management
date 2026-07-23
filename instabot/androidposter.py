@@ -16,7 +16,11 @@ Criar post → selecionar imagens (ordem por data) → Taxa=Retrato → (música
 → Compartilhar/Programar.
 """
 
+import re
+import subprocess
 import time
+import xml.etree.ElementTree as ET
+from pathlib import Path
 
 try:
     import uiautomator2 as u2
@@ -25,7 +29,22 @@ except Exception:            # pragma: no cover - ambiente sem a lib
     u2 = None
     _HAS_U2 = False
 
+try:
+    import androidenv
+except Exception:            # pragma: no cover
+    androidenv = None
+
 PKG = "com.instagram.android"
+CAROUSEL_REMOTE = "/sdcard/Pictures/postador"   # álbum dedicado do bot
+
+
+def _bounds_center(b: str):
+    """'[x1,y1][x2,y2]' → (cx, cy)."""
+    m = re.findall(r"-?\d+", b)
+    if len(m) < 4:
+        return None
+    x1, y1, x2, y2 = map(int, m[:4])
+    return (x1 + x2) // 2, (y1 + y2) // 2
 
 
 def _rid(name: str) -> str:
@@ -150,6 +169,85 @@ class IGDriver:
             return False
         time.sleep(0.8)
         return self._wait_click("Criar novo post", description="Criar novo post")
+
+    # ---- seleção do carrossel NA ORDEM ------------------------------------
+    def _adb(self, *args, timeout=60):
+        adb = androidenv.adb_path() if androidenv else Path("adb")
+        return subprocess.run([str(adb), "-s", self.serial, *args],
+                              capture_output=True, text=True, timeout=timeout).stdout
+
+    def push_carousel(self, local_paths, remote_dir: str = CAROUSEL_REMOTE) -> list:
+        """Envia as imagens para um álbum DEDICADO, em ORDEM REVERSA e indexando
+        UMA POR VEZ com intervalo: assim a imagem 1 é a ÚLTIMA indexada = a MAIS
+        NOVA = primeira célula da grade. Depois basta tocar as células em ordem de
+        leitura. (O 'criação em' do IG usa a data de indexação, não mtime/EXIF.)"""
+        paths = [Path(p) for p in local_paths]
+        self._adb("shell", "rm", "-rf", remote_dir)
+        self._adb("shell", "mkdir", "-p", remote_dir)
+        for p in reversed(paths):            # N, N-1, ..., 1  (1 fica por último)
+            remote = f"{remote_dir}/{p.name}"
+            self._adb("push", str(p), remote)
+            self._adb("shell", "am", "broadcast", "-a",
+                      "android.intent.action.MEDIA_SCANNER_SCAN_FILE", "-d", f"file://{remote}")
+            time.sleep(1.6)                  # date_added distinto (segundos)
+        self.log(f"• {len(paths)} imagens enviadas ao álbum '{Path(remote_dir).name}' (ordem garantida)")
+        return [f"{remote_dir}/{p.name}" for p in paths]
+
+    def _photo_cells(self):
+        """Células de FOTO da grade (com 'criação em' no desc), em ordem de leitura.
+        Retorna lista de dicts {cx, cy, desc, selected}. As N primeiras = mais novas."""
+        root = ET.fromstring(self.d.dump_hierarchy())
+        cells, seen = [], set()
+        for n in root.iter("node"):
+            a = n.attrib
+            rid = a.get("resource-id", "")
+            desc = a.get("content-desc", "")
+            if "gallery_grid_item_thumbnail" not in rid:
+                continue
+            if "cria" not in desc:           # ignora câmera/células sem foto
+                continue
+            b = a.get("bounds", "")
+            if b in seen:
+                continue
+            seen.add(b)
+            c = _bounds_center(b)
+            if not c:
+                continue
+            cells.append({"cx": c[0], "cy": c[1], "desc": desc,
+                          "selected": "selecionada" in desc})  # 'mídia selecionada N'
+        return cells
+
+    def enable_multiselect(self) -> bool:
+        ms = self.d(resourceId=_rid("multi_select_slide_button_alt"))
+        if ms.wait(timeout=self.timeout):
+            ms.click()
+            time.sleep(0.9)
+            self.log("• múltipla seleção ativada")
+            return True
+        self.log("⚠ botão de múltipla seleção não encontrado")
+        return False
+
+    def select_carousel(self, n: int) -> bool:
+        """Seleciona as n imagens (já enviadas por push_carousel) na ORDEM 1..n.
+        Limpa qualquer seleção automática e toca as n primeiras células em leitura."""
+        self.enable_multiselect()
+        # 1) limpar seleção automática (a mais nova costuma vir marcada como '1')
+        for _ in range(n + 2):
+            sel = [c for c in self._photo_cells() if c["selected"]]
+            if not sel:
+                break
+            self.d.click(sel[0]["cx"], sel[0]["cy"])
+            time.sleep(0.5)
+        # 2) tocar as n primeiras (mais novas) em ordem de leitura → carrossel 1..n
+        cells = self._photo_cells()
+        if len(cells) < n:
+            self.log(f"⚠ só achei {len(cells)} fotos na grade (esperava {n})")
+            return False
+        for i in range(n):
+            self.d.click(cells[i]["cx"], cells[i]["cy"])
+            time.sleep(0.5)
+        self.log(f"• {n} imagens tocadas na ordem (carrossel 1..{n})")
+        return True
 
 
 # --- rotina de VALIDAÇÃO (assistível, NÃO publica) -------------------------

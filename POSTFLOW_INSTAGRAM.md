@@ -49,22 +49,26 @@ Gatilho: **CLIQUE LONGO (long_click) na foto de Perfil da barra inferior** = `id
 - **Proporção/corte:** `id=croptype_toggle_button` desc='Alterar corte' → escolher "Original"
 - Miniaturas: `id=gallery_grid_item_thumbnail` (desc começa com "Selecionado"/"Não selecionado")
 - Pasta/álbum: `id=gallery_folder_menu_tv` text='Recentes'
-- ⚠️ ORDEM DO CARROSSEL: as miniaturas NÃO têm o nome do arquivo no crachá; a
-  galeria ordena por DATA (mais recente primeiro) e a ORDEM DE TOQUE = ordem do
-  carrossel. SOLUÇÃO no poster.py: ao `adb push`, dar timestamps de forma que
-  "1" seja o mais recente (aparece 1º) OU tocar as miniaturas na ordem inversa
-  do grid. A VALIDAR no teste real.
+- Miniaturas: `id=gallery_grid_item_thumbnail`; desc SELECIONADA = "Número da mídia
+  selecionada N Miniatura de foto com criação em <DATA> <HORA>" (o 'selecionada' com
+  'a' marca selecionado); NÃO selecionada = "Não selecionado ... com criação em ...".
+- Célula câmera = 1ª sem "criação em". Círculo: `gallery_grid_item_selection_circle`.
 
-### ✅ SOLUÇÃO DA ORDEM (descoberta na captura da tela selecionada)
-- Miniatura SELECIONADA: `id=gallery_grid_item_thumbnail`, desc =
-  "Número da mídia selecionada N Miniatura de foto com criação em <DATA> <HORA>"
-  → expõe o número da ordem (N) E a data/hora de criação!
-- Miniatura não selecionada: desc = "Não selecionado ... com criação em <DATA> <HORA>"
-- Círculo de seleção: `id=gallery_grid_item_selection_circle`; desmarcar: `id=unselect_button`
-- **ESTRATÉGIA ROBUSTA:** no adb push, dar a cada imagem um timestamp DISTINTO
-  (>= 1 min de diferença). O bot lê a "criação em <HORA>" no desc de cada miniatura,
-  mapeia hora→numero do arquivo, e toca na ordem 1..N. Não depende do sort da galeria.
-  (granularidade do desc é minuto → espacar os timestamps em >= 1 min).
+### ✅ SOLUÇÃO DA ORDEM — TESTADA E APROVADA (5 imgs, selos 1..5 corretos)
+**Descobertas dos testes (NÃO funcionam):** o "criação em" do IG = **date_added**
+(momento da INDEXAÇÃO no MediaStore). NÃO é o mtime (touch -t IGNORADO) nem a EXIF
+DateTimeOriginal (IGNORADA). Indexar tudo de uma vez → mesmo minuto pra todas.
+**O que FUNCIONA (implementado em androidposter.push_carousel + select_carousel):**
+1. Álbum DEDICADO `/sdcard/Pictures/postador` (rm -rf antes).
+2. `adb push` + `MEDIA_SCANNER_SCAN_FILE` **UMA imagem por vez**, em **ORDEM REVERSA**
+   (N, N-1, …, 1) com `sleep ~1.6s` entre elas → cada uma ganha `date_added` distinto
+   (segundos); a imagem **1 é a ÚLTIMA indexada = a MAIS NOVA = 1ª célula da grade**.
+3. No compositor: `multi_select_slide_button_alt` → LIMPAR seleção automática (tocar
+   as células com 'selecionada' até zerar) → tocar as **N primeiras células de foto
+   em ordem de leitura** (esquerda→direita, cima→baixo) → carrossel 1..N. ✅
+- Robustez: como as N minhas são as mais novas (push imediatamente antes), são as N
+  primeiras da grade — não depende de ler timestamp nenhum. (Endurecer no futuro:
+  abrir só o álbum 'postador' via `gallery_folder_menu_tv` p/ isolar de outras fotos.)
 
 ## ⚙️ REQUISITO DE SETUP (adendo do usuário — IMPORTANTE)
 Na PRIMEIRA publicação num emulador/aparelho novo, o Android/IG mostra VÁRIOS

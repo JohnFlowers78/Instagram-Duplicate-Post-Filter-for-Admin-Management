@@ -164,7 +164,11 @@ Pendências desta feature:
   mesmo aparelho/conta!). POSTFLOW TELA 7-ALT: overlay 'Programar post' (linhas Data/Horário) →
   DatePicker (dias por content-desc 'DD mês AAAA', `next` p/ mês, OK=`android:id/button1`) →
   TimePicker MODO TECLADO (`toggle_mode`→`input_hour`/`input_minute` 24h→OK). Bot DETECTA o estilo em runtime.
-- [ ] **Continuar o `poster.py`/androidposter.py**: seleção de imagens NA ORDEM (timestamps no push + ler "criação em HH:MM" do desc), Taxa=Retrato→Concluir, Avançar, legenda, colaboradores, Mais opções→toggle Programar, setar data/hora (RODA=3× numberpicker OU RELÓGIO=Data/Horário), Compartilhar→Programar.
+- ✅ **Seleção de imagens NA ORDEM — TESTADA** (`push_carousel`+`select_carousel`): álbum dedicado,
+  push reverso 1-por-vez com scan espaçado (date_added distinto → img 1 = mais nova = 1ª célula),
+  limpa auto-seleção e toca as N primeiras em ordem de leitura. Screenshot confirmou selos 1..5 certos.
+- [ ] **Continuar o `androidposter.py`**: Taxa=Retrato→Concluir, Avançar, legenda, colaboradores,
+  Mais opções→toggle Programar, setar data/hora (RODA=3× numberpicker OU RELÓGIO=Data/Horário), Compartilhar→Programar.
 - [ ] (conferência) re-verificar o RELÓGIO no **Galaxy físico** (mesmos componentes Material → deve bater).
 - [ ] **Configurar a API Graph da Meta** (o "Método Seguro" — publica sem música/sem agendar-nativo; via nosso vigia 24h)
 - [ ] Seletor das 3 estratégias na aba Postagem + fallback "continuar com emulador" se celular desconectado

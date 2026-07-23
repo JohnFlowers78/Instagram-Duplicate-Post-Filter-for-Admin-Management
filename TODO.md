@@ -178,9 +178,12 @@ Pendências desta feature:
   (swipe de 1 altura de item, duration=0.25 = 1 passo). Resultado confirmado: "Fri, Jul 24, 3:20PM". ✅
 - ✅ **Fluxo completo TESTADO no FÍSICO**: push/ordem, conta, Taxa/Retrato, legenda+OK, Mais opções,
   toggle, roda. Mesmos seletores do emulador funcionaram no Samsung/Android 15.
-- [ ] **Testar colaboradores** (add_collaborators) num post real de teste.
-- [ ] **Habilitar publish=True** (submit) só num teste deliberado.
-- [ ] **Testar tudo no Android FÍSICO** (Galaxy S21 Ultra) — será 1 das 3 estratégias.
+- ✅ **Colaboradores TESTADOS** (add_collaborators → @mentedespierta.es) no físico com IG saudável.
+- ✅ **Fluxo COMPLETO validado no FÍSICO pós-reinstalação** (IG 439): push/ordem→Taxa→legenda+OK→
+  colaborador→Mais opções→roda (Sat, Jul 25, 4:40PM). Fim a fim, sem travar. Modo seguro (publish=False).
+  (O travamento anterior era bug do IG do usuário, resolvido reinstalando.)
+- [ ] **Habilitar publish=True** (submit) — ÚNICO teste que falta: agendar de verdade 1 post
+  na @mentalityfilter (conta de teste) pra confirmar que aparece em 'Conteúdo Programado'. PEDIR OK ao usuário.
 - [ ] (conferência) re-verificar o RELÓGIO no **Galaxy físico** (mesmos componentes Material → deve bater).
 - [ ] **Configurar a API Graph da Meta** (o "Método Seguro" — publica sem música/sem agendar-nativo; via nosso vigia 24h)
 - [ ] Seletor das 3 estratégias na aba Postagem + fallback "continuar com emulador" se celular desconectado

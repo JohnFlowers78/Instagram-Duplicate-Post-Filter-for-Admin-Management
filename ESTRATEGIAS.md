@@ -182,3 +182,13 @@ Toda análise "não repetida" loga o candidato mais próximo:
   fingerprint consistente (os 2 maiores sinais de detecção). Fins de semana = bom "ruído humano".
 - Honesto: reduz, não zera o risco. `uiautomator2` = "Risco Existente"; API Graph = "Método Seguro".
   `postplan` já embaralha horários (variância) — reforça o disfarce.
+
+### 🔧 Emulador travando no boot (snapshot corrompido) — 23/07
+Sintoma: a janela do emulador abre, o processo `qemu-system-x86_64.exe` fica vivo,
+mas o ADB mostra `emulator-5554 **offline**` e `sys.boot_completed` nunca vira 1
+(trava na tela inicial). Causa: **snapshot de quick-boot corrompido**.
+- **Correção (NÃO apaga dados):** subir em BOOT FRIO → `emulator -avd postador -no-snapshot-load`
+  (bootou em ~18s). O `-wipe-data` NÃO é necessário — ele apagaria os logins.
+- Os atalhos (Área de Trabalho + Menu Iniciar) foram atualizados para incluir
+  `-no-snapshot-load`, então sempre fazem boot frio e não travam mais.
+- Se travar de novo: `taskkill /F /IM qemu-system-x86_64.exe` e reabrir pelo atalho.

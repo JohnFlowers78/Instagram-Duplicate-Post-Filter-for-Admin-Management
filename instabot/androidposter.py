@@ -104,9 +104,19 @@ class IGDriver:
         return False
 
     # ---- app / navegação ---------------------------------------------------
+    def lock_portrait(self):
+        """Mantém o AUTO-GIRAR DESLIGADO (retrato). O uiautomator2 congela/descongela
+        a rotação sozinho e acaba REATIVANDO o auto-girar — o que, com o aparelho
+        deitado, faz o app virar de lado. Esta trava evita isso (pedido do usuário)."""
+        try:
+            self._adb("shell", "settings", "put", "system", "accelerometer_rotation", "0")
+        except Exception:
+            pass
+
     def open_app(self, fresh: bool = True):
         """Abre o Instagram. fresh=True FECHA antes (garante abrir no Feed, não
         retomar uma tela anterior como o compositor/agendador)."""
+        self.lock_portrait()
         if fresh:
             self.d.app_stop(PKG)
             time.sleep(0.8)
@@ -580,6 +590,11 @@ def post_flow(serial, account, image_paths, caption="", collaborators=None,
     except Exception as exc:
         r["error"] = str(exc)
         drv.log(f"ERRO no estágio '{r['stage']}': {exc}")
+    finally:
+        try:
+            drv.lock_portrait()   # não deixar o auto-girar reativado
+        except Exception:
+            pass
     return r
 
 
@@ -609,6 +624,11 @@ def navtest(serial: str = "emulator-5554", target_account: str = "",
     except Exception as exc:
         r["error"] = str(exc)
         drv.log(f"ERRO: {exc}")
+    finally:
+        try:
+            drv.lock_portrait()
+        except Exception:
+            pass
     return r
 
 

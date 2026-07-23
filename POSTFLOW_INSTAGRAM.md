@@ -124,8 +124,10 @@ aparecem pro bot e travam o fluxo. Avisar isso no botão de Login/Setup do app.
 - (a cor do balão varia com a música; o botão é sempre `select_button_tap_target`)
 
 ## TELA 5 — Legenda / Compartilhar (action_bar 'Novo post')
-- **Legenda:** `id=caption_input_text_view` (AutoComplete; text placeholder 'Adicione uma legenda…')
-  → o bot escreve o conteúdo do Legenda.txt
+- **Legenda:** tocar `id=caption_input_text_view` na tela de compartilhar ABRE UMA
+  TELA DEDICADA 'Legenda' (action_bar_textview_title='Legenda'). Lá o bot escreve em
+  `id=caption_input_text_view` e CONFIRMA no botão **`id=next_button_textview`
+  (text/desc='OK')** → volta à tela de compartilhar. ✅ (sem o OK, fica preso na Legenda)
 - **Marcar pessoas/COLABORADOR:** `id=metadata_row_people` (contém `tag_people_string`='Marcar pessoas')
 - Música aplicada (confirma): `id=music_track_title`/`music_track_subtitle`; remover `id=music_track_cross`
 - Localização: `id=metadata_location_row`
@@ -138,6 +140,8 @@ aparecem pro bot e travam o fluxo. Avisar isso no botão de Login/Setup do app.
   alterna via multi-login se necessário).
 
 ## TELA 6 — "Mais opções" (action_bar_title='Mais opções')
+- ⚠️ Na tela de compartilhar, a linha '... Mais opções' (`id=title` text='Mais opções')
+  fica ABAIXO da dobra → ROLAR (swipe up ~1x) até achar e tocar. ✅ TESTADO.
 - Seção 'Preferências de compartilhamento' com VÁRIAS chaves, cada uma: `id=title` (texto) + `id=toggle` (ToggleButton)
 - Linhas: **'Programar esse post'** (1ª), 'Desativar comentários', 'Ocultar nº de curtidas',
   'Ocultar nº de compartilhamentos', 'Compartilhamento automático'
@@ -160,12 +164,12 @@ aparecem pro bot e travam o fluxo. Avisar isso no botão de Login/Setup do app.
   (relógio circular) — RE-VERIFICAR e mapear à parte.
 
 ### TELA 7-ALT — Overlay data/hora estilo RELÓGIO ✅ CAPTURADO (emulador)
-**O QUE ALTERNA O ESTILO (descoberto):** NÃO é só o aparelho nem só os seguidores.
-- Contas PEQUENAS (ex.: @mentalityfilter, 0 seguidores): SEMPRE estilo RODA.
-- Contas GRANDES (196k, 2M): **ALTERNAM (A/B) entre RODA e RELÓGIO** — o MESMO
-  aparelho/conta ora mostra um, ora outro. Logo o bot PRECISA dos DOIS e deve
-  DETECTAR em runtime (se existe `numberpicker_input` → RODA; se existe
-  `com.instagram.android:id/title_text_view`='Programar post' com linhas Data/Horário → RELÓGIO).
+**O QUE ALTERNA O ESTILO:** é um teste A/B do IG, NÃO amarrado a aparelho nem a
+seguidores. Observado RODA e RELÓGIO alternando no MESMO aparelho/conta. Contas
+pequenas quase sempre mostram RODA, mas o usuário viu o outro estilo 1x (amostra
+mínima) → **TRATAR OS DOIS COMO POSSÍVEIS EM QUALQUER CONTA/APARELHO**. O bot
+SEMPRE DETECTA em runtime: se existe `numberpicker_input` → RODA; se existe
+`com.instagram.android:id/title_text_view`='Programar post' com linhas Data/Horário → RELÓGIO.
 
 **Overlay "Programar post" (folha IG):**
 - Título: `id=title_text_view` text='Programar post'; subtítulo de fuso `id=subtitle_text_view`

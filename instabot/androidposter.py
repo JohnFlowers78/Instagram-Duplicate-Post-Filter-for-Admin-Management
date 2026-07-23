@@ -249,6 +249,248 @@ class IGDriver:
         self.log(f"• {n} imagens tocadas na ordem (carrossel 1..{n})")
         return True
 
+    # ---- BLOCO 2: edição (Taxa=Retrato) -----------------------------------
+    def advance_selection(self) -> bool:
+        """Grade de seleção → tela de edição (Avançar)."""
+        return self._wait_click("Avançar (seleção)", resourceId=_rid("next_button_textview"))
+
+    def set_aspect_portrait(self) -> bool:
+        """Aba 'Taxa' → 'Retrato' → 'Concluir' (aplica proporção retrato a TODAS)."""
+        if not self._wait_click("aba Taxa", text="Taxa"):
+            return False
+        time.sleep(0.8)
+        if not self._wait_click("Retrato", text="Retrato"):
+            # às vezes é 'Vertical'/'Retrato (4:5)'; tenta por prefixo
+            self._wait_click("Retrato (prefixo)", textStartsWith="Retrato")
+        time.sleep(0.5)
+        return self._wait_click("Concluir (Taxa)", resourceId=_rid("bottom_sheet_done_button"))
+
+    def advance_edit(self) -> bool:
+        """Tela de edição → tela de legenda (Avançar)."""
+        return self._wait_click("Avançar (edição)", resourceId=_rid("media_thumbnail_tray_button"))
+
+    # ---- BLOCO 3: legenda + colaboradores ---------------------------------
+    def set_caption(self, caption: str) -> bool:
+        """Abre o editor dedicado de Legenda, escreve e confirma com 'OK' (volta
+        à tela de compartilhar)."""
+        el = self.d(resourceId=_rid("caption_input_text_view"))
+        if not el.wait(timeout=self.timeout):
+            self.log("⚠ campo de legenda não encontrado")
+            return False
+        el.click()               # abre a tela dedicada 'Legenda'
+        time.sleep(0.6)
+        field = self.d(resourceId=_rid("caption_input_text_view"))
+        (field if field.exists else el).set_text(caption or "")
+        self.log(f"• legenda escrita ({len(caption or '')} car.)")
+        time.sleep(0.4)
+        # confirmar: botão 'OK' (id=next_button_textview) → volta à tela de compartilhar
+        ok = self.d(resourceId=_rid("next_button_textview"), description="OK")
+        if not ok.exists:
+            ok = self.d(resourceId=_rid("next_button_textview"))
+        if ok.exists:
+            ok.click()
+            self.log("• legenda confirmada (OK)")
+        else:
+            self.d.press("back")
+        time.sleep(1.2)
+        return True
+
+    def add_collaborators(self, users) -> bool:
+        """Marcar pessoas → Convidar colaboradores → busca cada @ → Concluir."""
+        users = [u.lstrip("@").strip() for u in (users or []) if u.strip()]
+        if not users:
+            return True
+        if not self._wait_click("Marcar pessoas", resourceId=_rid("metadata_row_people")):
+            return False
+        time.sleep(0.8)
+        if not self._wait_click("Convidar colaboradores", resourceId=_rid("invite_collaborator_button")):
+            self.d.press("back")
+            return False
+        for user in users:
+            se = self.d(resourceId=_rid("search_edit_text"))
+            if not se.wait(timeout=self.timeout):
+                self.log("⚠ busca de colaborador ausente")
+                break
+            se.set_text(user)
+            time.sleep(1.5)
+            # acha a linha cujo username == user
+            hit = self.d(resourceId=_rid("row_search_user_username"), text=user)
+            if not hit.wait(timeout=self.timeout):
+                hit = self.d(resourceId=_rid("row_search_user_container"))
+            if hit.exists:
+                hit.click()
+                self.log(f"• colaborador @{user} adicionado")
+                time.sleep(1.0)
+            else:
+                self.log(f"⚠ colaborador @{user} não encontrado")
+            try:
+                se.set_text("")
+            except Exception:
+                pass
+        # "V" (Concluir) = ImageView desc='Concluir'
+        done = self.d(resourceId=_rid("action_bar_button_action"))
+        ok = self._wait_click("Concluir (colaboradores)",
+                              className="android.widget.ImageView", description="Concluir")
+        return ok
+
+    # ---- BLOCO 4: agendamento (Mais opções → Programar → data/hora) -------
+    def _scroll_to(self, max_swipes=8, **kw) -> bool:
+        for _ in range(max_swipes):
+            if self.d(**kw).exists:
+                return True
+            self.d.swipe_ext("up", 0.6)
+            time.sleep(0.5)
+        return self.d(**kw).exists
+
+    def open_more_options(self) -> bool:
+        """Rola a tela de legenda até '... Mais opções' e abre."""
+        if not self._scroll_to(textContains="Mais opções"):
+            self.log("⚠ '...Mais opções' não encontrado")
+            return False
+        return self._wait_click("Mais opções", textContains="Mais opções")
+
+    def toggle_schedule(self) -> bool:
+        """Ativa a chave 'Programar esse post' (abre o overlay de data/hora)."""
+        title = self.d(text="Programar esse post")
+        if not title.wait(timeout=self.timeout):
+            self.log("⚠ linha 'Programar esse post' ausente")
+            return False
+        # toca o ToggleButton da MESMA linha (sobe ao container e acha o toggle)
+        try:
+            self.d.xpath('//*[@text="Programar esse post"]/../..//*[@resource-id="%s"]'
+                         % _rid("toggle")).click()
+        except Exception:
+            title.click()   # fallback: tocar a linha
+        self.log("• chave 'Programar esse post' acionada")
+        time.sleep(1.5)
+        return True
+
+    def detect_picker(self) -> str:
+        """'roda' | 'relogio' | '' — qual overlay de data/hora apareceu."""
+        if self.d(resourceId=_rid("numberpicker_input")).exists:
+            return "roda"
+        t = self.d(resourceId=_rid("title_text_view"))
+        if (t.exists and (t.get_text() or "") == "Programar post") \
+           or self.d(descriptionStartsWith="Data,").exists:
+            return "relogio"
+        return ""
+
+    def set_datetime_relogio(self, dt) -> bool:
+        """Estilo RELÓGIO: linha Data (calendário) + linha Horário (modo teclado)."""
+        MES = ["janeiro","fevereiro","março","abril","maio","junho","julho",
+               "agosto","setembro","outubro","novembro","dezembro"]
+        # --- DATA ---
+        if not self._wait_click("linha Data", descriptionStartsWith="Data,"):
+            return False
+        time.sleep(1.0)
+        alvo_desc = f"{dt.day:02d} {MES[dt.month-1]} {dt.year}"
+        for _ in range(14):   # avança meses se preciso
+            day = self.d(description=alvo_desc)
+            if day.exists:
+                day.click()
+                break
+            nxt = self.d(resourceId="android:id/next")
+            if not nxt.exists:
+                nxt = self.d(description="Próximo mês")
+            if nxt.exists:
+                nxt.click(); time.sleep(0.6)
+            else:
+                break
+        self._wait_click("OK (data)", resourceId="android:id/button1")
+        time.sleep(0.8)
+        # --- HORÁRIO (modo teclado) ---
+        if not self._wait_click("linha Horário", descriptionStartsWith="Horário,"):
+            return False
+        time.sleep(1.0)
+        tog = self.d(resourceId="android:id/toggle_mode")
+        if tog.exists:
+            tog.click(); time.sleep(0.6)
+        h = self.d(resourceId="android:id/input_hour")
+        m = self.d(resourceId="android:id/input_minute")
+        if h.exists and m.exists:
+            h.set_text(f"{dt.hour:02d}"); time.sleep(0.3)
+            m.set_text(f"{dt.minute:02d}"); time.sleep(0.3)
+        self._wait_click("OK (horário)", resourceId="android:id/button1")
+        time.sleep(0.6)
+        # --- Concluir do overlay ---
+        return self._wait_click("Concluir (agendar)", resourceId=_rid("bb_primary_action_container"))
+
+    def set_datetime_roda(self, dt) -> bool:
+        """Estilo RODA: 3 numberpicker_input por índice (0=data,1=hora,2=minuto).
+        NumberPicker aceita set_text de forma irregular → tenta set_text e valida."""
+        pk = self.d(resourceId=_rid("numberpicker_input"))
+        if not pk.exists:
+            return False
+        # hora e minuto por texto direto (numberpicker costuma aceitar em EditText)
+        try:
+            els = list(self.d(resourceId=_rid("numberpicker_input")))
+        except Exception:
+            els = []
+        if len(els) >= 3:
+            try:
+                els[1].set_text(f"{dt.hour:02d}")
+                els[2].set_text(f"{dt.minute:02d}")
+            except Exception as exc:
+                self.log(f"⚠ set_text da roda falhou: {exc} (a validar/ajustar p/ swipe)")
+        # data (índice 0) é a mais complexa (texto tipo 'qua., 22 de jul.') → deixar
+        # no dia atual por ora; ajustar depois com leitura+swipe se necessário.
+        return self._wait_click("Concluir (agendar)", resourceId=_rid("bb_primary_action_container"))
+
+    def set_schedule(self, dt) -> bool:
+        style = self.detect_picker()
+        self.log(f"• estilo do seletor detectado: {style or '???'}")
+        if style == "relogio":
+            return self.set_datetime_relogio(dt)
+        if style == "roda":
+            return self.set_datetime_roda(dt)
+        self.log("⚠ nenhum overlay de data/hora reconhecido")
+        return False
+
+    def submit(self, schedule: bool = True) -> bool:
+        """Toca o botão final (share_footer_button): 'Programar' (agendado) ou 'Compartilhar'."""
+        return self._wait_click("botão final (Programar/Compartilhar)",
+                                resourceId=_rid("share_footer_button"))
+
+
+# --- orquestração do POST completo -----------------------------------------
+def post_flow(serial, account, image_paths, caption="", collaborators=None,
+              when=None, publish=False, report=None) -> dict:
+    """Fluxo completo de postagem/agendamento. publish=False PARA antes do botão
+    final (Programar/Compartilhar) — modo seguro de teste. when=datetime (agendar)
+    ou None (imediato)."""
+    r = {"ok": False, "stage": "", "style": "", "error": ""}
+    drv = IGDriver(serial, report=report)
+    try:
+        drv.connect()
+        r["stage"] = "push";       drv.push_carousel(image_paths)
+        r["stage"] = "abrir";      drv.open_app(fresh=True)
+        drv.go_to_profile()
+        if account:
+            drv.ensure_account(account)
+        r["stage"] = "criar";      drv.open_create_post(); time.sleep(2)
+        r["stage"] = "selecionar"; drv.select_carousel(len(image_paths))
+        r["stage"] = "avancar1";   drv.advance_selection(); time.sleep(1.5)
+        r["stage"] = "taxa";       drv.set_aspect_portrait(); time.sleep(1)
+        r["stage"] = "avancar2";   drv.advance_edit(); time.sleep(2)
+        r["stage"] = "legenda";    drv.set_caption(caption)
+        if collaborators:
+            r["stage"] = "colab";  drv.add_collaborators(collaborators); time.sleep(1)
+        if when is not None:
+            r["stage"] = "maisopcoes"; drv.open_more_options(); time.sleep(1.5)
+            r["stage"] = "toggle";     drv.toggle_schedule(); time.sleep(1.5)
+            r["style"] = drv.detect_picker()
+            r["stage"] = "datahora";   drv.set_schedule(when); time.sleep(1.5)
+        if publish:
+            r["stage"] = "submit";     drv.submit(schedule=when is not None)
+            drv.log("✅ POST enviado")
+        else:
+            drv.log("⏸ PARADO antes do botão final (modo seguro — nada publicado)")
+        r["ok"] = True
+    except Exception as exc:
+        r["error"] = str(exc)
+        drv.log(f"ERRO no estágio '{r['stage']}': {exc}")
+    return r
+
 
 # --- rotina de VALIDAÇÃO (assistível, NÃO publica) -------------------------
 def navtest(serial: str = "emulator-5554", target_account: str = "",

@@ -167,8 +167,16 @@ Pendências desta feature:
 - ✅ **Seleção de imagens NA ORDEM — TESTADA** (`push_carousel`+`select_carousel`): álbum dedicado,
   push reverso 1-por-vez com scan espaçado (date_added distinto → img 1 = mais nova = 1ª célula),
   limpa auto-seleção e toca as N primeiras em ordem de leitura. Screenshot confirmou selos 1..5 certos.
-- [ ] **Continuar o `androidposter.py`**: Taxa=Retrato→Concluir, Avançar, legenda, colaboradores,
-  Mais opções→toggle Programar, setar data/hora (RODA=3× numberpicker OU RELÓGIO=Data/Horário), Compartilhar→Programar.
+- ✅ **Blocos 2–4 do `androidposter.py` — TESTADOS (caminho RELÓGIO)**: Taxa→Retrato→Concluir,
+  Avançar, legenda (tela dedicada 'Legenda' → OK), Mais opções (rolar→id=title), toggle Programar,
+  RELÓGIO (Data=calendário + Horário=modo teclado). Screenshot confirmou "Thu, Jul 23, 3:20PM" setado. ✅
+  Métodos: advance_selection/set_aspect_portrait/advance_edit/set_caption/add_collaborators/
+  open_more_options/toggle_schedule/detect_picker/set_datetime_relogio/set_datetime_roda/set_schedule/submit + post_flow().
+- [ ] **Testar caminho RODA** (set_datetime_roda: numberpicker por set_text é incerto — validar/ajustar
+  p/ swipe quando o estilo roda aparecer; A/B, não force). Também: setar a DATA na roda (índice 0).
+- [ ] **Testar colaboradores** (add_collaborators) num post real de teste.
+- [ ] **Habilitar publish=True** (submit) só num teste deliberado.
+- [ ] **Testar tudo no Android FÍSICO** (Galaxy S21 Ultra) — será 1 das 3 estratégias.
 - [ ] (conferência) re-verificar o RELÓGIO no **Galaxy físico** (mesmos componentes Material → deve bater).
 - [ ] **Configurar a API Graph da Meta** (o "Método Seguro" — publica sem música/sem agendar-nativo; via nosso vigia 24h)
 - [ ] Seletor das 3 estratégias na aba Postagem + fallback "continuar com emulador" se celular desconectado

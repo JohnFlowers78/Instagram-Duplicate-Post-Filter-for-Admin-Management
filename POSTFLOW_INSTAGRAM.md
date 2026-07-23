@@ -10,6 +10,32 @@ Cada passo lista o seletor que o poster.py vai usar (id / text / desc).
   (ex.: "mentalityfilter"). O bot confere se bate com a conta de destino.
 - Abrir o menu Criar: action bar do perfil, ImageView `desc='Criar novo'`.
 
+## NAVEGAÇÃO — Barra inferior (presente em todas as telas principais) ✅
+O app abre no FEED. O bot navega pela barra de baixo (todos com `content-desc`):
+- 🏠 **Feed / Página inicial:** `id=feed_tab` (desc='Página inicial')
+- 🎬 Reels: `id=clips_tab` (desc='Reels')
+- ✉️ Mensagens: `id=direct_tab` (desc='Mensagem')
+- 🔍 Pesquisar: `id=search_tab` (desc='Pesquisar e explorar')
+- 👤 **Perfil:** `id=profile_tab` (desc='Perfil')  ← a foto de perfil na barra
+- FLUXO padrão do bot: abre no Feed → toca `profile_tab` → lê `action_bar_title`
+  (@ ativo) → confere se == conta de destino.
+
+## TROCA DE CONTA (se a conta ativa != conta de destino) ✅ CAPTURADO
+Gatilho: **CLIQUE LONGO (long_click) na foto de Perfil da barra inferior** = `id=profile_tab`.
+→ abre um bottom sheet com a lista de contas logadas.
+- **Cada conta é uma linha `ViewGroup` cujo `content-desc` = o @ da conta** (SEM resource-id):
+  - conta ATIVA: desc == exatamente o @ (ex.: desc='mentedespierta.es')
+  - outras contas: desc pode ter sufixo (ex.: desc='mentalityfilter, 1 conversa e mais 1')
+  - `desc='Adicionar conta do Instagram'` (Button) — add novo login
+  - `desc='Acessar a Central de Contas'` (Button) — Meta
+- **ESTRATÉGIA do bot:** long_click `profile_tab` → achar a ViewGroup cujo content-desc
+  == @destino OU startswith(@destino) → tocar → o app troca e recarrega o perfil →
+  re-ler `action_bar_title` pra CONFIRMAR a troca. Fechar sem trocar = `press('back')`.
+- REQUISITO: as contas de destino precisam estar TODAS logadas no mesmo IG do robô
+  (multi-login). O bot nunca digita senha — só alterna entre contas já logadas.
+- SELETOR u2: `d(resourceId='...:id/profile_tab').long_click()` →
+  `d(descriptionStartsWith='<@destino>').click()`
+
 ## TELA 1 — Menu "Criar" (bottom sheet)
 - Título do painel: `id=title_text_view` text='Criar'
 - **Post (carrossel/foto):** Button `desc='Criar novo post'` (rótulo `text='Post'`)  ← o bot toca aqui
@@ -103,8 +129,9 @@ aparecem pro bot e travam o fluxo. Avisar isso no botão de Login/Setup do app.
 - **Compartilhar (postar direto):** `id=share_footer_button`
 - Voltar: `id=button_back`
 - ⚠️ "... Mais opções" (Config. avançadas → PROGRAMAR) fica ABAIXO da dobra — rolar p/ achar.
-- NOTA: conta de destino (@) não aparece aqui; troca de conta foi ADIADA pelo usuário
-  (por ora o bot posta na conta ativa, confirmada por action_bar_title).
+- NOTA: conta de destino (@) não aparece aqui. O bot GARANTE a conta certa ANTES
+  de entrar no fluxo de criação — ver seção "TROCA DE CONTA" (checa @ no perfil e
+  alterna via multi-login se necessário).
 
 ## TELA 6 — "Mais opções" (action_bar_title='Mais opções')
 - Seção 'Preferências de compartilhamento' com VÁRIAS chaves, cada uma: `id=title` (texto) + `id=toggle` (ToggleButton)

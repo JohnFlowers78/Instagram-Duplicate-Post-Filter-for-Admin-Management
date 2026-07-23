@@ -182,8 +182,10 @@ Pendências desta feature:
 - ✅ **Fluxo COMPLETO validado no FÍSICO pós-reinstalação** (IG 439): push/ordem→Taxa→legenda+OK→
   colaborador→Mais opções→roda (Sat, Jul 25, 4:40PM). Fim a fim, sem travar. Modo seguro (publish=False).
   (O travamento anterior era bug do IG do usuário, resolvido reinstalando.)
-- ✅ **AMBOS os estilos A/B testados no FÍSICO**: o A/B é POR CONTA (mesmo Galaxy):
-  @mentalityfilter→RODA (Sat Jul 25 4:40PM); @mentedespierta.es→RELÓGIO (Sun Jul 26 2:20PM).
+- ✅ **MATRIZ 4/4 COMPLETA** (roda×relógio no emulador E no físico):
+  - Emulador: RODA=Mon Jul 27 10:15 (@mentalityfilter) · RELÓGIO=Thu Jul 23 3:20 (@mentedespierta)
+  - Físico:   RODA=Sat Jul 25 4:40 (@mentalityfilter) · RELÓGIO=Sun Jul 26 2:20 (@mentedespierta)
+  - A/B é POR CONTA e ESTÁVEL, mas o bot SEMPRE detecta em runtime (independe de aparelho/conta).
   Hardening: switch_account tenta 2x; set_datetime_relogio espera input_hour/minute (timing).
 - ✅ **Trava de auto-girar** (retrato) — uiautomator2 reativava a rotação; lock_portrait no open_app/finally.
 - [ ] **Habilitar publish=True** (submit) — ÚNICO teste que falta: agendar de verdade 1 post

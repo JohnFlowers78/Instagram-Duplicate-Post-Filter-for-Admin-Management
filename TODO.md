@@ -172,8 +172,12 @@ Pendências desta feature:
   RELÓGIO (Data=calendário + Horário=modo teclado). Screenshot confirmou "Thu, Jul 23, 3:20PM" setado. ✅
   Métodos: advance_selection/set_aspect_portrait/advance_edit/set_caption/add_collaborators/
   open_more_options/toggle_schedule/detect_picker/set_datetime_relogio/set_datetime_roda/set_schedule/submit + post_flow().
-- [ ] **Testar caminho RODA** (set_datetime_roda: numberpicker por set_text é incerto — validar/ajustar
-  p/ swipe quando o estilo roda aparecer; A/B, não force). Também: setar a DATA na roda (índice 0).
+- ✅ **Caminho RODA TESTADO no FÍSICO** (Galaxy S21U/Android 15/IG 438, @mentalityfilter):
+  detect_picker corrigido (`android:id/numberpicker_input`, NÃO o pacote do IG; título
+  'Programar post' existe nos 2 estilos). Clique nos botões NÃO funciona → só GESTO
+  (swipe de 1 altura de item, duration=0.25 = 1 passo). Resultado confirmado: "Fri, Jul 24, 3:20PM". ✅
+- ✅ **Fluxo completo TESTADO no FÍSICO**: push/ordem, conta, Taxa/Retrato, legenda+OK, Mais opções,
+  toggle, roda. Mesmos seletores do emulador funcionaram no Samsung/Android 15.
 - [ ] **Testar colaboradores** (add_collaborators) num post real de teste.
 - [ ] **Habilitar publish=True** (submit) só num teste deliberado.
 - [ ] **Testar tudo no Android FÍSICO** (Galaxy S21 Ultra) — será 1 das 3 estratégias.

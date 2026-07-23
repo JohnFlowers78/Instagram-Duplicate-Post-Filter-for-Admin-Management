@@ -20,6 +20,7 @@ import re
 import subprocess
 import time
 import xml.etree.ElementTree as ET
+from datetime import date as _date
 from pathlib import Path
 
 try:
@@ -36,6 +37,22 @@ except Exception:            # pragma: no cover
 
 PKG = "com.instagram.android"
 CAROUSEL_REMOTE = "/sdcard/Pictures/postador"   # álbum dedicado do bot
+# ATENÇÃO: o NumberPicker da "roda" é widget do FRAMEWORK Android (namespace
+# android:), NÃO do pacote do Instagram — usar o prefixo errado quebra a detecção.
+NP_INPUT = "android:id/numberpicker_input"
+
+
+def _bounds_rect(b: str):
+    """'[x1,y1][x2,y2]' → (x1, y1, x2, y2)."""
+    m = re.findall(r"-?\d+", b or "")
+    if len(m) < 4:
+        return None
+    return tuple(map(int, m[:4]))
+
+
+def _first_int(txt: str):
+    m = re.search(r"\d+", txt or "")
+    return int(m.group()) if m else None
 
 
 def _bounds_center(b: str):
@@ -366,14 +383,93 @@ class IGDriver:
         return True
 
     def detect_picker(self) -> str:
-        """'roda' | 'relogio' | '' — qual overlay de data/hora apareceu."""
-        if self.d(resourceId=_rid("numberpicker_input")).exists:
+        """'roda' | 'relogio' | '' — qual overlay de data/hora apareceu.
+        ⚠ NÃO usar o título 'Programar post' como sinal: os DOIS estilos o têm."""
+        if self.d(resourceId=NP_INPUT).exists:
             return "roda"
-        t = self.d(resourceId=_rid("title_text_view"))
-        if (t.exists and (t.get_text() or "") == "Programar post") \
-           or self.d(descriptionStartsWith="Data,").exists:
+        if self.d(descriptionStartsWith="Data,").exists:
             return "relogio"
+        if self.d(resourceId=_rid("date_picker_sheet")).exists:
+            return "roda"
         return ""
+
+    # --- roda: colunas (Button anterior / EditText atual / Button seguinte) ---
+    def _roda_columns(self):
+        """3 colunas do NumberPicker, da esquerda p/ direita:
+        [0]=data, [1]=hora, [2]=minuto. Cada uma com o valor atual e os botões
+        de valor anterior (up) e seguinte (down)."""
+        root = ET.fromstring(self.d.dump_hierarchy())
+        inputs, buttons = [], []
+        for n in root.iter("node"):
+            a = n.attrib
+            rect = _bounds_rect(a.get("bounds", ""))
+            if not rect:
+                continue
+            if a.get("resource-id", "") == NP_INPUT:
+                inputs.append({"rect": rect, "text": a.get("text", "")})
+            elif a.get("class", "").endswith(".Button") and not a.get("resource-id"):
+                buttons.append({"rect": rect, "text": a.get("text", "")})
+        inputs.sort(key=lambda i: i["rect"][0])
+        cols = []
+        for inp in inputs:
+            x1, y1, x2, y2 = inp["rect"]
+            cx = (x1 + x2) // 2
+            up = down = None
+            for b in buttons:
+                bx1, by1, bx2, by2 = b["rect"]
+                if bx1 <= cx <= bx2:
+                    if by2 <= y1 + 20:
+                        up = b
+                    elif by1 >= y2 - 20:
+                        down = b
+            cols.append({"text": inp["text"], "rect": inp["rect"], "up": up, "down": down})
+        return cols
+
+    def _roda_swipe(self, rect, forward: bool = True):
+        """UM passo na roda. ⚠ CLIQUE nos botões NÃO funciona no NumberPicker —
+        só gesto. Calibrado: swipe de 1 altura de item = exatamente 1 passo."""
+        x1, y1, x2, y2 = rect
+        cx = (x1 + x2) // 2
+        cy = (y1 + y2) // 2
+        h = max(60, y2 - y1)
+        if forward:      # próximo valor: rola para CIMA
+            self.d.swipe(cx, cy + h // 2, cx, cy - h // 2, duration=0.25)
+        else:            # valor anterior: rola para BAIXO
+            self.d.swipe(cx, cy - h // 2, cx, cy + h // 2, duration=0.25)
+        time.sleep(0.55)
+
+    def _roda_step_to(self, col_idx: int, want: int, modulo: int, step: int = 1,
+                      max_steps: int = 30) -> bool:
+        """Rola a coluna até mostrar 'want', pelo caminho circular mais curto."""
+        for _ in range(max_steps):
+            cols = self._roda_columns()
+            if col_idx >= len(cols):
+                return False
+            cur = _first_int(cols[col_idx]["text"])
+            if cur is None:
+                return False
+            if cur == want:
+                return True
+            n = max(1, modulo // step)
+            fwd = ((want - cur) // step) % n
+            bwd = ((cur - want) // step) % n
+            self._roda_swipe(cols[col_idx]["rect"], forward=(fwd <= bwd))
+        return False
+
+    def _roda_set_date(self, target_date) -> bool:
+        """Coluna da data: 1 dia por gesto (o picker começa em HOJE). Conta os dias
+        em vez de interpretar o texto localizado ('qui., 23 de jul.')."""
+        delta = (target_date - _date.today()).days
+        if delta <= 0:
+            return True                      # já é hoje (passado → mantém hoje)
+        for _ in range(min(delta, 80)):      # IG permite ~75 dias
+            cols = self._roda_columns()
+            if not cols:
+                return False
+            self._roda_swipe(cols[0]["rect"], forward=True)
+        cols = self._roda_columns()
+        got = _first_int(cols[0]["text"]) if cols else None
+        return got == target_date.day
 
     def set_datetime_relogio(self, dt) -> bool:
         """Estilo RELÓGIO: linha Data (calendário) + linha Horário (modo teclado)."""
@@ -416,24 +512,19 @@ class IGDriver:
         return self._wait_click("Concluir (agendar)", resourceId=_rid("bb_primary_action_container"))
 
     def set_datetime_roda(self, dt) -> bool:
-        """Estilo RODA: 3 numberpicker_input por índice (0=data,1=hora,2=minuto).
-        NumberPicker aceita set_text de forma irregular → tenta set_text e valida."""
-        pk = self.d(resourceId=_rid("numberpicker_input"))
-        if not pk.exists:
+        """Estilo RODA: 3 colunas (0=data, 1=hora, 2=minuto). Em vez de arriscar
+        swipes, CLICA nos botões de valor anterior/seguinte até bater o alvo."""
+        if not self.d(resourceId=NP_INPUT).exists:
+            self.log("⚠ roda não encontrada (numberpicker ausente)")
             return False
-        # hora e minuto por texto direto (numberpicker costuma aceitar em EditText)
-        try:
-            els = list(self.d(resourceId=_rid("numberpicker_input")))
-        except Exception:
-            els = []
-        if len(els) >= 3:
-            try:
-                els[1].set_text(f"{dt.hour:02d}")
-                els[2].set_text(f"{dt.minute:02d}")
-            except Exception as exc:
-                self.log(f"⚠ set_text da roda falhou: {exc} (a validar/ajustar p/ swipe)")
-        # data (índice 0) é a mais complexa (texto tipo 'qua., 22 de jul.') → deixar
-        # no dia atual por ora; ajustar depois com leitura+swipe se necessário.
+        ok_d = self._roda_set_date(dt.date())
+        ok_h = self._roda_step_to(1, dt.hour, modulo=24, step=1)
+        ok_m = self._roda_step_to(2, dt.minute, modulo=60, step=5)
+        cols = self._roda_columns()
+        atual = " | ".join(c["text"] for c in cols) if cols else "?"
+        self.log(f"• roda ajustada → {atual}  (data={ok_d} hora={ok_h} min={ok_m})")
+        if not (ok_d and ok_h and ok_m):
+            self.log("⚠ alguma coluna não bateu o alvo")
         return self._wait_click("Concluir (agendar)", resourceId=_rid("bb_primary_action_container"))
 
     def set_schedule(self, dt) -> bool:

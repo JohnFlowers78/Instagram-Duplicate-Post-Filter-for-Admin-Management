@@ -151,7 +151,31 @@ aparecem pro bot e travam o fluxo. Avisar isso no botão de Login/Setup do app.
 - Ao ATIVAR a chave → abre overlay de DATA/HORA (de 5 em 5 min). No FÍSICO o seletor de
   hora é diferente (relógio circular) — RE-VERIFICAR no Android físico depois.
 
-## TELA 7 — Overlay "Programar post" (data + hora) — EMULADOR
+## TELA 7 — Overlay "Programar post" estilo RODA ✅ TESTADO (Galaxy S21U/And.15/IG 438)
+### ⚠️ ARMADILHAS DESCOBERTAS NO TESTE REAL (custaram tempo — leia antes de mexer)
+1. **`numberpicker_input` é do FRAMEWORK: `android:id/numberpicker_input`** — NÃO
+   `com.instagram.android:id/...`. Usar o prefixo errado faz a detecção falhar.
+2. **O título 'Programar post' aparece nos DOIS estilos** → NUNCA usar como sinal de
+   detecção. Correto: existe `android:id/numberpicker_input`? → RODA. Existe linha
+   `descriptionStartsWith='Data,'`? → RELÓGIO.
+3. **CLICAR nos botões de valor anterior/seguinte NÃO FUNCIONA** (de ~180 cliques,
+   1 registrou). O NumberPicker só responde a **GESTO**.
+4. **Calibração do gesto:** swipe vertical de **1 altura de item** (o `numberpicker_input`
+   mede ~135px) com `duration=0.25` = **exatamente 1 passo**. Para cima = próximo valor,
+   para baixo = anterior. Dormir ~0.55s entre gestos (animação).
+5. **Tocar na LINHA do agendamento (quando já ligada) DESLIGA a chave** — não reabre o
+   seletor. Para reabrir, acionar a chave de novo (`toggle_schedule`).
+
+### Estrutura (3 colunas)
+- Folha: `id=date_picker_sheet` → `date_picker_hint_text` → `date_picker_container` → `time_picker_view`
+- Cada coluna: `Button`(valor anterior) / `EditText android:id/numberpicker_input`(ATUAL) / `Button`(valor seguinte)
+  - [0] DATA (ex.: 'qui., 23 de jul.') — sem botão "anterior" quando está em HOJE (mínimo)
+  - [1] HORA ('13') · [2] MINUTO ('55', de 5 em 5)
+- **CONCLUIR:** `id=bb_primary_action_container` (desc='Concluir')
+- ESTRATÉGIA (androidposter): DATA = contar dias (`delta = alvo - hoje`, 1 gesto/dia) em vez
+  de interpretar o texto localizado; HORA/MINUTO = caminho circular mais curto (módulo 24 / 60 passo 5).
+
+## TELA 7 (nota antiga) — Overlay "Programar post" (data + hora) — EMULADOR
 - Título: `id=title_text_view` text='Programar post'
 - Container: `id=date_picker_sheet`; dica: `id=date_picker_hint_text`
 - **3 NumberPickers, todos `id=numberpicker_input` (EditText), por ÍNDICE:**

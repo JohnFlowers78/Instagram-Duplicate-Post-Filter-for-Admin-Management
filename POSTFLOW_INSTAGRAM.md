@@ -188,12 +188,13 @@ aparecem pro bot e travam o fluxo. Avisar isso no botão de Login/Setup do app.
   (relógio circular) — RE-VERIFICAR e mapear à parte.
 
 ### TELA 7-ALT — Overlay data/hora estilo RELÓGIO ✅ CAPTURADO (emulador)
-**O QUE ALTERNA O ESTILO:** é um teste A/B do IG, NÃO amarrado a aparelho nem a
-seguidores. Observado RODA e RELÓGIO alternando no MESMO aparelho/conta. Contas
-pequenas quase sempre mostram RODA, mas o usuário viu o outro estilo 1x (amostra
-mínima) → **TRATAR OS DOIS COMO POSSÍVEIS EM QUALQUER CONTA/APARELHO**. O bot
-SEMPRE DETECTA em runtime: se existe `numberpicker_input` → RODA; se existe
-`com.instagram.android:id/title_text_view`='Programar post' com linhas Data/Horário → RELÓGIO.
+**O QUE ALTERNA O ESTILO (medido):** é um teste A/B do IG que parece ser **POR CONTA**,
+NÃO por aparelho. No MESMO Galaxy S21U: `@mentalityfilter` mostrou SEMPRE **RODA** e
+`@mentedespierta.es` mostrou SEMPRE **RELÓGIO** (5x seguidas cada). Portanto o estilo é
+estável por conta, mas **TRATAR OS DOIS COMO POSSÍVEIS** e SEMPRE DETECTAR em runtime:
+existe `android:id/numberpicker_input` → RODA; existe linha `descriptionStartsWith='Data,'`
+→ RELÓGIO. (⚠ o título 'Programar post' aparece nos DOIS — nunca usar como sinal.)
+✅ AMBOS os estilos testados no FÍSICO: roda="Sat, Jul 25, 4:40PM"; relógio="Sun, Jul 26, 2:20PM".
 
 **Overlay "Programar post" (folha IG):**
 - Título: `id=title_text_view` text='Programar post'; subtítulo de fuso `id=subtitle_text_view`

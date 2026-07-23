@@ -157,16 +157,23 @@ class IGDriver:
         if not prof.wait(timeout=self.timeout):
             self.log("⚠ aba Perfil ausente para o clique-longo")
             return False
-        prof.long_click()
-        self.log("• clique-longo na foto de Perfil (abriu seletor de contas)")
-        time.sleep(1.2)
-        # linha exata, senão linha que começa com o @ (tem sufixo de notificações)
-        row = self.d(description=target)
-        if not row.exists:
-            row = self.d(descriptionStartsWith=target)
-        if not row.wait(timeout=self.timeout):
-            self.log(f"⚠ conta @{target} não está logada neste aparelho")
+        # abre o seletor e procura a conta; tenta 2x (o bottom sheet pode demorar)
+        row = None
+        for tentativa in range(2):
+            prof.long_click()
+            self.log("• clique-longo na foto de Perfil (abriu seletor de contas)")
+            time.sleep(1.8)
+            r = self.d(description=target)
+            if not r.exists:
+                r = self.d(descriptionStartsWith=target)
+            if r.wait(timeout=self.timeout):
+                row = r
+                break
+            self.log(f"  (tentativa {tentativa+1}: conta ainda não apareceu no seletor)")
             self.d.press("back")
+            time.sleep(1.0)
+        if row is None:
+            self.log(f"⚠ conta @{target} não está logada neste aparelho")
             return False
         row.click()
         self.log(f"• toquei na conta @{target}")
@@ -509,13 +516,20 @@ class IGDriver:
             return False
         time.sleep(1.0)
         tog = self.d(resourceId="android:id/toggle_mode")
-        if tog.exists:
-            tog.click(); time.sleep(0.6)
+        if tog.wait(timeout=self.timeout):
+            tog.click()
         h = self.d(resourceId="android:id/input_hour")
         m = self.d(resourceId="android:id/input_minute")
-        if h.exists and m.exists:
-            h.set_text(f"{dt.hour:02d}"); time.sleep(0.3)
-            m.set_text(f"{dt.minute:02d}"); time.sleep(0.3)
+        if h.wait(timeout=self.timeout) and m.wait(timeout=self.timeout):
+            for _ in range(3):                 # campo pode não estar pronto de 1ª
+                try:
+                    h.set_text(f"{dt.hour:02d}"); time.sleep(0.3)
+                    m.set_text(f"{dt.minute:02d}"); time.sleep(0.3)
+                    break
+                except Exception:
+                    time.sleep(0.8)
+        else:
+            self.log("⚠ campos de hora/minuto (modo teclado) não apareceram")
         self._wait_click("OK (horário)", resourceId="android:id/button1")
         time.sleep(0.6)
         # --- Concluir do overlay ---
